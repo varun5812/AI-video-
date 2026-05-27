@@ -1,116 +1,185 @@
+import os
+
+os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+
 import streamlit as st
 import time
 from dotenv import load_dotenv
+
+load_dotenv()  # MUST be before core imports
+
 from utils.audio_processor import process_input
 from core.transcriber import transcribe_all
 from core.summarizer import summarize, generate_title
 from core.extractor import extract_action_items, extract_key_decisions, extract_questions
 from core.rag_engine import build_rag_chain, ask_question
 
-load_dotenv()
-
 # ─── Page Config ────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="AI Video Assistant — Meeting Intelligence",
+    page_title="VideoAI — Meeting Intelligence",
     page_icon="🎬",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ─── Premium CSS Design System ──────────────────────────────────────────────────
+# ─── ChatGPT-Style Design System ────────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@300;400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
 
 /* ══════════════════════════════════════════════════════════
    DESIGN TOKENS
    ══════════════════════════════════════════════════════════ */
 :root {
-    --bg-primary: #06060a;
-    --bg-secondary: #0c0c14;
-    --bg-tertiary: #12121e;
-    --bg-elevated: #181828;
-    --bg-glass: rgba(18, 18, 30, 0.7);
-    --border-subtle: rgba(255,255,255,0.06);
-    --border-default: rgba(255,255,255,0.09);
-    --border-hover: rgba(139,92,246,0.35);
-    --accent-primary: #8b5cf6;
-    --accent-light: #a78bfa;
-    --accent-ultralight: #c4b5fd;
-    --accent-glow: rgba(139,92,246,0.5);
-    --accent-secondary: #06d6a0;
-    --accent-tertiary: #38bdf8;
-    --text-primary: #f1f0f5;
-    --text-secondary: #a09cb5;
-    --text-tertiary: #6b6582;
-    --success: #22c55e;
-    --success-bg: rgba(34,197,94,0.08);
-    --warning: #f59e0b;
-    --warning-bg: rgba(245,158,11,0.08);
-    --danger: #ef4444;
-    --danger-bg: rgba(239,68,68,0.08);
-    --radius-sm: 8px;
-    --radius-md: 12px;
-    --radius-lg: 16px;
-    --radius-xl: 20px;
-    --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
-    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
-    --shadow-lg: 0 12px 40px rgba(0,0,0,0.5);
+    /* Main area — soft warm dark */
+    --bg-main: #1a1a2e;
+    --bg-main-secondary: #16213e;
+    --bg-card: rgba(255,255,255,0.04);
+    --bg-card-hover: rgba(255,255,255,0.07);
+    --bg-input: rgba(255,255,255,0.06);
+    --bg-input-focus: rgba(255,255,255,0.09);
+    
+    /* Sidebar — darker */
+    --bg-sidebar: #0f0f1a;
+    --bg-sidebar-hover: rgba(255,255,255,0.05);
+    --bg-sidebar-active: rgba(139,92,246,0.12);
+    
+    /* Accent — vibrant purple-violet gradient */
+    --accent: #8b5cf6;
+    --accent-hover: #a78bfa;
+    --accent-dark: #7c3aed;
+    --accent-glow: rgba(139,92,246,0.25);
+    --accent-gradient: linear-gradient(135deg, #8b5cf6 0%, #a855f7 50%, #7c3aed 100%);
+    --accent-gradient-soft: linear-gradient(135deg, rgba(139,92,246,0.15), rgba(168,85,247,0.08));
+    
+    /* Complementary accents */
+    --green: #10b981;
+    --green-soft: rgba(16,185,129,0.12);
+    --blue: #3b82f6;
+    --blue-soft: rgba(59,130,246,0.12);
+    --amber: #f59e0b;
+    --amber-soft: rgba(245,158,11,0.12);
+    --rose: #f43f5e;
+    --rose-soft: rgba(244,63,94,0.12);
+    --cyan: #06b6d4;
+    
+    /* Text */
+    --text-primary: #eeedf5;
+    --text-secondary: #a8a3b8;
+    --text-muted: #6b6580;
+    --text-on-accent: #ffffff;
+    
+    /* Borders */
+    --border: rgba(255,255,255,0.06);
+    --border-hover: rgba(139,92,246,0.3);
+    
+    /* Misc */
+    --radius-sm: 10px;
+    --radius-md: 14px;
+    --radius-lg: 18px;
+    --radius-xl: 22px;
+    --radius-pill: 100px;
+    --shadow-sm: 0 2px 8px rgba(0,0,0,0.2);
+    --shadow-md: 0 4px 20px rgba(0,0,0,0.25);
+    --shadow-lg: 0 8px 40px rgba(0,0,0,0.3);
     --shadow-glow: 0 0 30px rgba(139,92,246,0.15);
-    --transition-fast: 150ms cubic-bezier(0.4,0,0.2,1);
-    --transition-base: 250ms cubic-bezier(0.4,0,0.2,1);
-    --transition-slow: 400ms cubic-bezier(0.4,0,0.2,1);
+    --transition: 250ms cubic-bezier(0.4,0,0.2,1);
+    --transition-spring: 400ms cubic-bezier(0.34,1.56,0.64,1);
 }
 
 /* ══════════════════════════════════════════════════════════
-   GLOBAL RESET & BASE
+   GLOBAL
    ══════════════════════════════════════════════════════════ */
 html, body, [class*="css"] {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
-    background-color: var(--bg-primary) !important;
-    color: var(--text-primary) !important;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
     -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
 }
 
 .stApp {
-    background: var(--bg-primary) !important;
+    background: var(--bg-main) !important;
 }
 
-/* Subtle animated mesh gradient background */
+/* Animated gradient mesh */
 .stApp::before {
     content: '';
     position: fixed;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
+    inset: 0;
     background:
-        radial-gradient(ellipse 80% 50% at 20% 20%, rgba(139,92,246,0.06), transparent),
-        radial-gradient(ellipse 60% 40% at 80% 80%, rgba(6,214,160,0.04), transparent),
-        radial-gradient(ellipse 50% 50% at 50% 50%, rgba(56,189,248,0.03), transparent);
+        radial-gradient(ellipse 60% 50% at 15% 15%, rgba(139,92,246,0.08), transparent),
+        radial-gradient(ellipse 50% 40% at 85% 25%, rgba(6,182,212,0.05), transparent),
+        radial-gradient(ellipse 70% 60% at 50% 90%, rgba(168,85,247,0.06), transparent);
     pointer-events: none;
     z-index: 0;
+    animation: meshDrift 25s ease-in-out infinite alternate;
 }
 
-/* Subtle grid overlay */
-.stApp::after {
-    content: '';
-    position: fixed;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
-    background-image:
-        linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
-    background-size: 60px 60px;
-    pointer-events: none;
-    z-index: 0;
+@keyframes meshDrift {
+    0%   { opacity: 1; }
+    50%  { opacity: 0.7; }
+    100% { opacity: 1; }
 }
 
 /* ══════════════════════════════════════════════════════════
-   SIDEBAR
+   ANIMATIONS
+   ══════════════════════════════════════════════════════════ */
+@keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeScale {
+    from { opacity: 0; transform: scale(0.92); }
+    to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slideRight {
+    from { opacity: 0; transform: translateX(-12px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(139,92,246,0.35); }
+    50%      { box-shadow: 0 0 0 6px rgba(139,92,246,0); }
+}
+
+@keyframes shimmer {
+    0%   { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
+
+@keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50%      { transform: translateY(-8px); }
+}
+
+@keyframes gradientFlow {
+    0%   { background-position: 0% 50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+@keyframes typing {
+    from { width: 0; }
+    to   { width: 100%; }
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0; }
+}
+
+@keyframes ripple {
+    0%   { transform: scale(0.8); opacity: 1; }
+    100% { transform: scale(2.5); opacity: 0; }
+}
+
+/* ══════════════════════════════════════════════════════════
+   SIDEBAR — ChatGPT Dark Style
    ══════════════════════════════════════════════════════════ */
 [data-testid="stSidebar"] {
-    background: var(--bg-secondary) !important;
-    border-right: 1px solid var(--border-subtle) !important;
+    background: var(--bg-sidebar) !important;
+    border-right: 1px solid var(--border) !important;
 }
 
 [data-testid="stSidebar"] * {
@@ -121,378 +190,625 @@ html, body, [class*="css"] {
     color: var(--text-secondary) !important;
 }
 
-/* ══════════════════════════════════════════════════════════
-   TYPOGRAPHY
-   ══════════════════════════════════════════════════════════ */
-h1, h2, h3, h4, h5, h6 {
-    font-family: 'Inter', sans-serif !important;
-    color: var(--text-primary) !important;
-    letter-spacing: -0.02em;
-}
-
-/* Hero Section */
-.hero-container {
-    text-align: center;
-    padding: 2rem 1rem 1.5rem;
-}
-
-.hero-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.35rem 0.9rem;
-    background: rgba(139,92,246,0.1);
-    border: 1px solid rgba(139,92,246,0.2);
-    border-radius: 100px;
-    font-size: 0.7rem;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--accent-light);
-    margin-bottom: 1rem;
-}
-
-.hero-title {
-    font-family: 'Inter', sans-serif;
-    font-size: clamp(1.8rem, 4.5vw, 3rem);
-    font-weight: 800;
-    line-height: 1.1;
-    margin: 0 0 0.6rem;
-    background: linear-gradient(135deg, #ffffff 0%, var(--accent-light) 40%, var(--accent-secondary) 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    letter-spacing: -0.03em;
-}
-
-.hero-subtitle {
-    font-size: 0.9rem;
-    color: var(--text-tertiary);
-    font-weight: 400;
-    line-height: 1.5;
-    max-width: 480px;
-    margin: 0 auto;
-}
-
-/* ══════════════════════════════════════════════════════════
-   CARDS — Glassmorphism
-   ══════════════════════════════════════════════════════════ */
-.glass-card {
-    background: var(--bg-glass);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-lg);
-    padding: 1.5rem;
-    margin-bottom: 1rem;
-    position: relative;
-    overflow: hidden;
-    transition: border-color var(--transition-base), box-shadow var(--transition-base), transform var(--transition-fast);
-}
-
-.glass-card:hover {
-    border-color: var(--border-hover);
-    box-shadow: var(--shadow-glow);
-    transform: translateY(-1px);
-}
-
-.glass-card::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0;
-    width: 100%; height: 2px;
-    background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary), var(--accent-tertiary));
-    opacity: 0;
-    transition: opacity var(--transition-base);
-}
-
-.glass-card:hover::before {
-    opacity: 1;
-}
-
-.card-header {
+/* Sidebar brand */
+.sb-brand {
     display: flex;
     align-items: center;
-    gap: 0.6rem;
-    margin-bottom: 1rem;
+    gap: 0.65rem;
+    padding: 1.25rem 0.25rem;
+    margin-bottom: 0.5rem;
 }
 
-.card-icon {
+.sb-brand-logo {
+    width: 38px; height: 38px;
+    background: var(--accent-gradient);
+    border-radius: var(--radius-sm);
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
+    font-size: 1.15rem;
+    box-shadow: 0 4px 12px rgba(139,92,246,0.3);
+}
+
+.sb-brand-text {
+    font-size: 1.1rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+.sb-brand-sub {
+    font-size: 0.58rem;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted) !important;
+    margin-top: 1px;
+}
+
+/* New Analysis button */
+.sb-new-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.7rem;
+    background: var(--bg-sidebar-hover);
+    border: 1px dashed rgba(255,255,255,0.1);
     border-radius: var(--radius-sm);
-    font-size: 0.95rem;
+    color: var(--text-secondary) !important;
+    font-size: 0.82rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition);
+    margin-bottom: 1rem;
+}
+
+.sb-new-btn:hover {
+    background: var(--bg-sidebar-active);
+    border-color: var(--accent);
+    color: var(--accent-hover) !important;
+}
+
+/* History items */
+.sb-section-label {
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-muted) !important;
+    padding: 0.75rem 0.25rem 0.4rem;
+}
+
+.sb-history-item {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.6rem 0.7rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.78rem;
+    font-weight: 450;
+    color: var(--text-secondary) !important;
+    cursor: pointer;
+    transition: all var(--transition);
+    margin: 2px 0;
+    text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sb-history-item:hover {
+    background: var(--bg-sidebar-hover);
+    color: var(--text-primary) !important;
+}
+
+.sb-history-item.active {
+    background: var(--bg-sidebar-active);
+    color: var(--accent-hover) !important;
+}
+
+.sb-history-icon {
+    font-size: 0.85rem;
+    opacity: 0.6;
     flex-shrink: 0;
 }
 
-.card-icon-purple { background: rgba(139,92,246,0.15); }
-.card-icon-green  { background: rgba(34,197,94,0.12); }
-.card-icon-blue   { background: rgba(56,189,248,0.12); }
-.card-icon-amber  { background: rgba(245,158,11,0.12); }
-.card-icon-rose   { background: rgba(244,63,94,0.12); }
-
-.card-label {
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--text-tertiary);
+.sb-history-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-.card-body {
-    font-size: 0.875rem;
-    line-height: 1.75;
-    color: var(--text-secondary);
-}
-
-/* ══════════════════════════════════════════════════════════
-   BADGES / CHIPS
-   ══════════════════════════════════════════════════════════ */
-.chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    padding: 0.25rem 0.65rem;
-    border-radius: 100px;
-    font-size: 0.65rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    transition: all var(--transition-fast);
-}
-
-.chip-purple  { background: rgba(139,92,246,0.12); color: var(--accent-light); border: 1px solid rgba(139,92,246,0.2); }
-.chip-green   { background: rgba(6,214,160,0.1);   color: var(--accent-secondary); border: 1px solid rgba(6,214,160,0.2); }
-.chip-blue    { background: rgba(56,189,248,0.1);   color: var(--accent-tertiary); border: 1px solid rgba(56,189,248,0.2); }
-.chip-success { background: var(--success-bg);      color: var(--success); border: 1px solid rgba(34,197,94,0.2); }
-
-/* ══════════════════════════════════════════════════════════
-   PIPELINE STATUS
-   ══════════════════════════════════════════════════════════ */
-.pipeline-step {
+/* Status indicator */
+.sb-status {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.6rem 0.9rem;
-    background: var(--bg-tertiary);
+    gap: 0.5rem;
+    padding: 0.55rem 0.7rem;
+    background: rgba(16,185,129,0.08);
+    border: 1px solid rgba(16,185,129,0.15);
     border-radius: var(--radius-sm);
     margin: 0.3rem 0;
-    border: 1px solid var(--border-subtle);
-    font-size: 0.78rem;
+    font-size: 0.72rem;
     font-weight: 500;
-    color: var(--text-secondary);
-    transition: all var(--transition-base);
+    color: var(--green) !important;
 }
 
-.pipeline-step:hover {
-    background: var(--bg-elevated);
-    border-color: var(--border-default);
+.sb-status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    flex-shrink: 0;
 }
 
-.step-indicator {
+/* Pipeline steps in sidebar */
+.sb-pipeline {
+    padding: 0.25rem 0;
+}
+
+.sb-step {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.4rem 0.5rem;
+    font-size: 0.72rem;
+    font-weight: 450;
+    color: var(--text-muted);
+    transition: all var(--transition);
+}
+
+.sb-step-dot {
     width: 7px; height: 7px;
     border-radius: 50%;
     flex-shrink: 0;
-    transition: all var(--transition-base);
 }
 
-.ind-active {
-    background: var(--accent-primary);
-    box-shadow: 0 0 10px var(--accent-glow), 0 0 4px var(--accent-glow);
-    animation: pulseGlow 2s ease-in-out infinite;
+.sb-step-dot.done { background: var(--green); box-shadow: 0 0 6px rgba(16,185,129,0.3); }
+.sb-step-dot.active { background: var(--accent); animation: pulse 2s infinite; }
+.sb-step-dot.pending { background: var(--text-muted); opacity: 0.3; }
+
+/* Powered by footer */
+.sb-footer {
+    text-align: center;
+    padding: 1rem 0 0.5rem;
 }
 
-.ind-done {
-    background: var(--success);
-    box-shadow: 0 0 6px rgba(34,197,94,0.3);
+.sb-footer-label {
+    font-size: 0.55rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-muted) !important;
 }
 
-.ind-pending {
-    background: var(--text-tertiary);
-    opacity: 0.4;
-}
-
-@keyframes pulseGlow {
-    0%, 100% { opacity: 1; box-shadow: 0 0 10px var(--accent-glow); }
-    50%      { opacity: 0.5; box-shadow: 0 0 4px var(--accent-glow); }
+.sb-footer-tech {
+    font-size: 0.65rem;
+    color: var(--text-secondary) !important;
+    margin-top: 0.2rem;
 }
 
 /* ══════════════════════════════════════════════════════════
-   METRIC CARDS
+   MAIN — CENTERED CONTENT
    ══════════════════════════════════════════════════════════ */
-.metric-row {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.75rem;
-    margin-bottom: 1.25rem;
+.main-wrapper {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 0 1rem;
 }
 
-.metric-card {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
-    padding: 1rem;
+/* Hero */
+.hero {
     text-align: center;
-    transition: all var(--transition-base);
+    padding: 3.5rem 0 2rem;
+    animation: fadeUp 0.7s ease-out;
 }
 
-.metric-card:hover {
-    border-color: var(--border-hover);
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
+.hero-icon-wrap {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 64px; height: 64px;
+    background: var(--accent-gradient);
+    border-radius: var(--radius-lg);
+    font-size: 1.8rem;
+    margin-bottom: 1.25rem;
+    box-shadow: 0 8px 32px rgba(139,92,246,0.3);
+    animation: float 4s ease-in-out infinite;
 }
 
-.metric-value {
-    font-size: 1.5rem;
-    font-weight: 800;
-    background: linear-gradient(135deg, var(--accent-light), var(--accent-secondary));
+.hero h1 {
+    font-size: clamp(1.7rem, 4vw, 2.6rem) !important;
+    font-weight: 800 !important;
+    letter-spacing: -0.04em !important;
+    line-height: 1.15 !important;
+    margin: 0 0 0.4rem !important;
+    color: var(--text-primary) !important;
+}
+
+.hero-gradient-text {
+    background: linear-gradient(135deg, #a78bfa, #06b6d4, #a78bfa);
+    background-size: 200% 200%;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+    animation: gradientFlow 5s ease infinite;
 }
 
-.metric-label {
-    font-size: 0.65rem;
+.hero-sub {
+    font-size: 0.92rem;
+    color: var(--text-muted);
+    line-height: 1.6;
+    max-width: 480px;
+    margin: 0.6rem auto 0;
+}
+
+/* CTA Input Bar — ChatGPT style centered */
+.cta-bar {
+    max-width: 640px;
+    margin: 0 auto;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    padding: 0.5rem;
+    display: flex;
+    gap: 0.5rem;
+    transition: all var(--transition);
+    animation: fadeUp 0.7s ease-out 0.3s both;
+}
+
+.cta-bar:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 4px rgba(139,92,246,0.08), var(--shadow-md);
+}
+
+/* How it works — Horizontal Flow */
+.flow-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    margin: 2.5rem auto 1.5rem;
+    max-width: 680px;
+    animation: fadeUp 0.7s ease-out 0.5s both;
+}
+
+.flow-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.85rem 0.6rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    flex: 1;
+    transition: all var(--transition);
+    min-width: 0;
+}
+
+.flow-step:hover {
+    background: var(--bg-card-hover);
+    border-color: var(--border-hover);
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-glow);
+}
+
+.flow-step-icon {
+    width: 36px; height: 36px;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+}
+
+.flow-step-icon.purple { background: rgba(139,92,246,0.12); }
+.flow-step-icon.blue   { background: rgba(59,130,246,0.12); }
+.flow-step-icon.green  { background: rgba(16,185,129,0.12); }
+.flow-step-icon.cyan   { background: rgba(6,182,212,0.12); }
+
+.flow-step-label {
+    font-size: 0.7rem;
     font-weight: 600;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--text-tertiary);
-    margin-top: 0.25rem;
+    color: var(--text-primary);
+    text-align: center;
+}
+
+.flow-arrow {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    opacity: 0.4;
+    flex-shrink: 0;
+}
+
+/* Capability chips */
+.cap-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+    animation: fadeUp 0.7s ease-out 0.7s both;
+}
+
+.cap-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.4rem 0.85rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    transition: all var(--transition);
+}
+
+.cap-chip:hover {
+    border-color: var(--accent);
+    color: var(--accent-hover);
+    transform: translateY(-1px);
 }
 
 /* ══════════════════════════════════════════════════════════
-   TITLE BANNER
+   RESULT CARDS
    ══════════════════════════════════════════════════════════ */
-.title-banner {
-    background: linear-gradient(135deg, rgba(139,92,246,0.08) 0%, rgba(6,214,160,0.05) 100%);
+/* Title Banner */
+.res-title {
+    background: var(--accent-gradient-soft);
     border: 1px solid rgba(139,92,246,0.15);
     border-radius: var(--radius-lg);
-    padding: 1.25rem 1.5rem;
-    margin-bottom: 1.25rem;
+    padding: 1.2rem 1.5rem;
     display: flex;
     align-items: center;
     gap: 1rem;
+    margin-bottom: 1.25rem;
+    animation: fadeUp 0.5s ease-out;
 }
 
-.title-banner-icon {
-    width: 42px; height: 42px;
+.res-title-icon {
+    width: 44px; height: 44px;
     border-radius: var(--radius-md);
-    background: rgba(139,92,246,0.15);
+    background: var(--accent-gradient);
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 1.2rem;
     flex-shrink: 0;
+    box-shadow: 0 4px 12px rgba(139,92,246,0.25);
 }
 
-.title-banner-text {
-    font-family: 'Inter', sans-serif;
+.res-title-text {
     font-size: 1.15rem;
     font-weight: 700;
     color: var(--text-primary);
     letter-spacing: -0.01em;
 }
 
-.title-banner-sub {
-    font-size: 0.72rem;
-    color: var(--text-tertiary);
-    margin-top: 0.15rem;
+.res-title-sub {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    margin-top: 2px;
     font-weight: 500;
 }
 
-/* ══════════════════════════════════════════════════════════
-   TRANSCRIPT BOX
-   ══════════════════════════════════════════════════════════ */
-.transcript-box {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-subtle);
+/* Metric strip */
+.metric-strip {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.7rem;
+    margin-bottom: 1.25rem;
+}
+
+.metric-box {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    padding: 1.25rem;
+    padding: 1rem;
+    text-align: center;
+    transition: all var(--transition);
+    animation: fadeScale 0.4s ease-out both;
+}
+
+.metric-box:nth-child(2) { animation-delay: 0.08s; }
+.metric-box:nth-child(3) { animation-delay: 0.16s; }
+
+.metric-box:hover {
+    border-color: var(--border-hover);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-glow);
+}
+
+.metric-num {
+    font-size: 1.4rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--accent-hover), var(--cyan));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.metric-lbl {
+    font-size: 0.6rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-top: 0.2rem;
+}
+
+/* Glass cards */
+.g-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 1.4rem;
+    margin-bottom: 0.85rem;
+    position: relative;
+    overflow: hidden;
+    transition: all var(--transition);
+    animation: fadeUp 0.45s ease-out both;
+}
+
+.g-card:hover {
+    border-color: var(--border-hover);
+    box-shadow: var(--shadow-glow);
+    transform: translateY(-2px);
+}
+
+/* Gradient top bar on hover */
+.g-card::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 3px;
+    background: var(--accent-gradient);
+    opacity: 0;
+    transition: opacity var(--transition);
+}
+.g-card:hover::after { opacity: 1; }
+
+.g-card-head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.85rem;
+}
+
+.g-card-icon {
+    width: 34px; height: 34px;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.95rem;
+    flex-shrink: 0;
+    transition: transform var(--transition-spring);
+}
+
+.g-card:hover .g-card-icon { transform: scale(1.12) rotate(-4deg); }
+
+.g-card-icon.purple { background: rgba(139,92,246,0.12); }
+.g-card-icon.green  { background: var(--green-soft); }
+.g-card-icon.blue   { background: var(--blue-soft); }
+.g-card-icon.amber  { background: var(--amber-soft); }
+
+.g-card-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.g-card-body {
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--text-secondary);
+}
+
+/* Transcript */
+.transcript-box {
+    background: rgba(0,0,0,0.2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 1.1rem;
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.78rem;
-    line-height: 1.9;
-    max-height: 340px;
+    line-height: 1.85;
+    max-height: 350px;
     overflow-y: auto;
     color: var(--text-secondary);
     white-space: pre-wrap;
     word-break: break-word;
 }
 
+/* Section divider */
+.sec-head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 1.5rem 0 0.85rem;
+    animation: fadeUp 0.4s ease-out;
+}
+
+.sec-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+}
+
+.sec-line {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, var(--border), transparent);
+}
+
 /* ══════════════════════════════════════════════════════════
-   CHAT INTERFACE
+   CHAT — ChatGPT Style
    ══════════════════════════════════════════════════════════ */
-.chat-wrapper {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-default);
+.chat-area {
+    background: rgba(0,0,0,0.15);
+    border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    padding: 1.25rem;
-    max-height: 440px;
+    padding: 1.2rem;
+    max-height: 420px;
     overflow-y: auto;
     margin-bottom: 0.75rem;
 }
 
 .chat-msg {
-    margin-bottom: 0.9rem;
     display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    animation: fadeSlideIn 0.3s ease-out;
+    gap: 0.7rem;
+    margin-bottom: 1rem;
+    animation: fadeUp 0.3s ease-out;
 }
 
-@keyframes fadeSlideIn {
-    from { opacity: 0; transform: translateY(6px); }
-    to   { opacity: 1; transform: translateY(0); }
+.chat-avatar {
+    width: 30px; height: 30px;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    flex-shrink: 0;
+    margin-top: 2px;
 }
 
-.chat-label {
-    font-size: 0.6rem;
+.chat-avatar.user { background: var(--accent-gradient); }
+.chat-avatar.bot  { background: var(--green-soft); }
+
+.chat-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.chat-name {
+    font-size: 0.65rem;
     font-weight: 700;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
+    margin-bottom: 0.25rem;
 }
 
-.chat-bubble {
-    display: inline-block;
-    padding: 0.7rem 1rem;
+.chat-name.user { color: var(--accent-hover); }
+.chat-name.bot  { color: var(--green); }
+
+.chat-text {
+    font-size: 0.85rem;
+    line-height: 1.7;
+    color: var(--text-secondary);
+    padding: 0.6rem 0.9rem;
     border-radius: var(--radius-md);
-    font-size: 0.84rem;
-    line-height: 1.65;
-    max-width: 85%;
+    max-width: 90%;
 }
 
-.user-label  { color: var(--accent-light); }
-.bot-label   { color: var(--accent-secondary); }
-
-.user-bubble {
+.chat-text.user {
     background: rgba(139,92,246,0.1);
-    border: 1px solid rgba(139,92,246,0.18);
-    align-self: flex-end;
-    border-bottom-right-radius: 4px;
+    border: 1px solid rgba(139,92,246,0.12);
 }
 
-.bot-bubble {
-    background: rgba(6,214,160,0.06);
-    border: 1px solid rgba(6,214,160,0.12);
-    align-self: flex-start;
-    border-bottom-left-radius: 4px;
+.chat-text.bot {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
 }
 
 .chat-empty {
     text-align: center;
-    padding: 3rem 2rem;
+    padding: 2.5rem 1.5rem;
 }
 
 .chat-empty-icon {
-    font-size: 2.5rem;
-    margin-bottom: 0.6rem;
-    opacity: 0.6;
+    font-size: 2.2rem;
+    margin-bottom: 0.5rem;
+    opacity: 0.4;
 }
 
 .chat-empty-text {
-    color: var(--text-tertiary);
+    color: var(--text-muted);
     font-size: 0.82rem;
     max-width: 300px;
     margin: 0 auto;
@@ -504,43 +820,44 @@ h1, h2, h3, h4, h5, h6 {
    ══════════════════════════════════════════════════════════ */
 .stTextInput > div > div > input,
 .stSelectbox > div > div {
-    background: var(--bg-tertiary) !important;
-    border: 1px solid var(--border-default) !important;
+    background: var(--bg-input) !important;
+    border: 1px solid var(--border) !important;
     border-radius: var(--radius-sm) !important;
     color: var(--text-primary) !important;
     font-family: 'Inter', sans-serif !important;
-    font-size: 0.85rem !important;
-    transition: border-color var(--transition-fast), box-shadow var(--transition-fast) !important;
+    font-size: 0.86rem !important;
+    transition: all var(--transition) !important;
 }
 
 .stTextInput > div > div > input:focus {
-    border-color: var(--accent-primary) !important;
-    box-shadow: 0 0 0 3px rgba(139,92,246,0.12) !important;
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 3px rgba(139,92,246,0.1) !important;
+    background: var(--bg-input-focus) !important;
 }
 
 .stTextInput > div > div > input::placeholder {
-    color: var(--text-tertiary) !important;
-    opacity: 0.7 !important;
+    color: var(--text-muted) !important;
 }
 
+/* Button */
 .stButton > button {
-    background: linear-gradient(135deg, var(--accent-primary) 0%, #7c3aed 100%) !important;
+    background: var(--accent-gradient) !important;
     color: white !important;
     border: none !important;
     border-radius: var(--radius-sm) !important;
     font-family: 'Inter', sans-serif !important;
     font-weight: 600 !important;
-    font-size: 0.82rem !important;
-    letter-spacing: 0.03em !important;
-    padding: 0.6rem 1.5rem !important;
-    transition: all var(--transition-base) !important;
-    box-shadow: 0 2px 8px rgba(139,92,246,0.25) !important;
+    font-size: 0.84rem !important;
+    padding: 0.6rem 1.4rem !important;
+    transition: all var(--transition) !important;
+    box-shadow: 0 4px 14px rgba(139,92,246,0.25) !important;
+    position: relative !important;
+    overflow: hidden !important;
 }
 
 .stButton > button:hover {
-    transform: translateY(-1px) !important;
-    box-shadow: 0 6px 20px rgba(139,92,246,0.35) !important;
-    filter: brightness(1.08) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 8px 28px rgba(139,92,246,0.35) !important;
 }
 
 .stButton > button:active {
@@ -549,233 +866,153 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Expander */
 .streamlit-expanderHeader {
-    background: var(--bg-tertiary) !important;
-    border: 1px solid var(--border-subtle) !important;
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border) !important;
     border-radius: var(--radius-sm) !important;
     color: var(--text-primary) !important;
     font-weight: 600 !important;
 }
 
 /* Progress */
-.stProgress > div > div > div { background: var(--accent-primary) !important; }
-.stSpinner > div { border-top-color: var(--accent-primary) !important; }
+.stProgress > div > div > div { background: var(--accent-gradient) !important; border-radius: 100px !important; }
 
 /* Labels */
-label { color: var(--text-tertiary) !important; font-size: 0.75rem !important; font-weight: 500 !important; }
+label { color: var(--text-muted) !important; font-size: 0.73rem !important; font-weight: 500 !important; }
 [data-testid="stMarkdownContainer"] p { color: var(--text-primary) !important; }
 
 /* Divider */
 hr {
     border: none !important;
-    border-top: 1px solid var(--border-subtle) !important;
-    margin: 1.5rem 0 !important;
+    height: 1px !important;
+    background: linear-gradient(90deg, transparent, var(--border), transparent) !important;
+    margin: 1.75rem 0 !important;
 }
 
 /* Scrollbar */
-::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 100px; }
-::-webkit-scrollbar-thumb:hover { background: var(--accent-primary); }
+::-webkit-scrollbar-thumb { background: rgba(139,92,246,0.15); border-radius: 100px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 
-/* Sidebar branding */
-.sidebar-brand {
-    padding: 1.25rem 0 0.75rem;
-    text-align: center;
-}
-
-.sidebar-logo {
-    font-size: 1.6rem;
-    font-weight: 800;
-    letter-spacing: -0.03em;
-    background: linear-gradient(135deg, var(--accent-light), var(--accent-secondary));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-}
-
-.sidebar-tagline {
-    font-size: 0.62rem;
-    font-weight: 600;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    color: var(--text-tertiary);
-    margin-top: 0.2rem;
-}
-
-.sidebar-divider {
-    width: 40px;
-    height: 2px;
-    background: linear-gradient(90deg, var(--accent-primary), transparent);
-    margin: 0.75rem auto;
-    border-radius: 2px;
-}
-
-/* Empty state */
-.empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 4rem 2rem;
-    text-align: center;
-    min-height: 50vh;
-}
-
-.empty-icon {
-    width: 80px;
-    height: 80px;
-    border-radius: var(--radius-xl);
-    background: linear-gradient(135deg, rgba(139,92,246,0.12), rgba(6,214,160,0.08));
-    border: 1px solid rgba(139,92,246,0.15);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 2.2rem;
-    margin-bottom: 1.5rem;
-}
-
-.empty-title {
-    font-size: 1.3rem;
-    font-weight: 700;
-    color: var(--text-primary);
-    margin-bottom: 0.5rem;
+h1, h2, h3, h4, h5, h6 {
+    color: var(--text-primary) !important;
     letter-spacing: -0.02em;
 }
 
-.empty-desc {
-    color: var(--text-tertiary);
-    font-size: 0.85rem;
-    max-width: 400px;
-    line-height: 1.7;
-}
-
-.feature-chips {
-    display: flex;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-    justify-content: center;
-    margin-top: 1.5rem;
-}
-
-/* Section headers */
-.section-header {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.75rem;
-}
-
-.section-title {
-    font-family: 'Inter', sans-serif;
-    font-size: 0.95rem;
-    font-weight: 700;
-    color: var(--text-primary);
-    letter-spacing: -0.01em;
-}
-
-.section-line {
-    flex: 1;
-    height: 1px;
-    background: var(--border-subtle);
+@media (max-width: 768px) {
+    .metric-strip { grid-template-columns: 1fr; }
+    .flow-container { flex-direction: column; }
+    .flow-arrow { transform: rotate(90deg); }
 }
 </style>
 """, unsafe_allow_html=True)
 
-# ─── Session State Init ──────────────────────────────────────────────────────────
+# ─── Session State ───────────────────────────────────────────────────────────────
 for key, default in {
     "result": None,
     "chat_history": [],
     "processing": False,
     "pipeline_done": False,
     "pipeline_steps": {},
+    "analysis_history": [],  # Store previous analyses
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
 
 # ─── Helpers ────────────────────────────────────────────────────────────────────
-def step_indicator_class(steps: dict, key: str) -> str:
-    s = steps.get(key, "pending")
-    if s == "active":  return "ind-active"
-    if s == "done":    return "ind-done"
-    return "ind-pending"
-
-def render_pipeline_step(label: str, key: str, icon: str):
-    css = step_indicator_class(st.session_state.pipeline_steps, key)
-    st.markdown(f"""
-    <div class="pipeline-step">
-        <div class="step-indicator {css}"></div>
-        <span>{icon}&ensp;{label}</span>
-    </div>""", unsafe_allow_html=True)
-
 def count_words(text: str) -> int:
     return len(text.split()) if text else 0
 
-# ─── Sidebar ────────────────────────────────────────────────────────────────────
+# ─── Sidebar — ChatGPT Style ────────────────────────────────────────────────────
 with st.sidebar:
+    # Brand
     st.markdown("""
-    <div class="sidebar-brand">
-        <div class="sidebar-logo">🎬 VideoAI</div>
-        <div class="sidebar-tagline">Meeting Intelligence</div>
-        <div class="sidebar-divider"></div>
+    <div class="sb-brand">
+        <div class="sb-brand-logo">🎬</div>
+        <div>
+            <div class="sb-brand-text">VideoAI</div>
+            <div class="sb-brand-sub">Meeting Intelligence</div>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown('<span class="chip chip-purple">🎤 Input Source</span>', unsafe_allow_html=True)
+    # Input Section
+    st.markdown('<div class="sb-section-label">🎤 Input</div>', unsafe_allow_html=True)
     source = st.text_input(
         "YouTube URL or File Path",
         placeholder="https://youtube.com/watch?v=...",
-        help="Paste a YouTube link or enter a local file path"
+        help="Paste a YouTube link or enter a local file path",
+        label_visibility="collapsed"
     )
-
-    language = st.selectbox("🌐 Language", ["english", "hinglish"], index=0)
-
-    st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+    language = st.selectbox("Language", ["english", "hinglish"], index=0, label_visibility="collapsed")
+    
+    st.markdown("<div style='height:0.35rem'></div>", unsafe_allow_html=True)
     run_btn = st.button("⚡  Analyse Video", use_container_width=True)
 
+    # Pipeline status
     if st.session_state.pipeline_done:
         st.markdown("---")
-        st.markdown('<span class="chip chip-success">✓ Pipeline Complete</span>', unsafe_allow_html=True)
-        st.markdown("<div style='height:0.3rem'></div>", unsafe_allow_html=True)
-        for step, icon, label in [
-            ("audio",      "🔊", "Audio Processing"),
-            ("transcript", "📝", "Transcription"),
-            ("title",      "🏷️", "Title Generation"),
-            ("summary",    "📋", "Summarisation"),
-            ("extract",    "🔍", "Extraction"),
-            ("rag",        "🧠", "RAG Engine"),
+        st.markdown("""
+        <div class="sb-status">
+            <div class="sb-status-dot"></div>
+            Analysis Complete
+        </div>
+        """, unsafe_allow_html=True)
+        
+        steps_html = '<div class="sb-pipeline">'
+        for key, icon, label in [
+            ("audio", "🔊", "Audio"), ("transcript", "📝", "Transcription"),
+            ("title", "🏷️", "Title"), ("summary", "📋", "Summary"),
+            ("extract", "🔍", "Extraction"), ("rag", "🧠", "RAG Engine"),
         ]:
-            render_pipeline_step(label, step, icon)
+            s = st.session_state.pipeline_steps.get(key, "pending")
+            dot_cls = "done" if s == "done" else "active" if s == "active" else "pending"
+            steps_html += f'<div class="sb-step"><div class="sb-step-dot {dot_cls}"></div>{icon} {label}</div>'
+        steps_html += '</div>'
+        st.markdown(steps_html, unsafe_allow_html=True)
 
+    # Previous analyses history
+    if st.session_state.analysis_history:
+        st.markdown("---")
+        st.markdown('<div class="sb-section-label">📂 Previous Analyses</div>', unsafe_allow_html=True)
+        
+        history_html = ""
+        for i, item in enumerate(reversed(st.session_state.analysis_history)):
+            active_cls = "active" if i == 0 and st.session_state.pipeline_done else ""
+            history_html += f"""
+            <div class="sb-history-item {active_cls}">
+                <span class="sb-history-icon">🎬</span>
+                <span class="sb-history-text">{item['title']}</span>
+            </div>"""
+        st.markdown(history_html, unsafe_allow_html=True)
+
+    # Footer
     st.markdown("---")
     st.markdown("""
-    <div style="text-align:center;padding:0.5rem 0">
-        <div style="font-size:0.6rem;color:var(--text-tertiary);letter-spacing:0.08em;text-transform:uppercase;font-weight:600">
-            Powered by
-        </div>
-        <div style="font-size:0.7rem;color:var(--text-secondary);margin-top:0.2rem">
-            Groq Whisper · Mistral AI · LangChain
-        </div>
+    <div class="sb-footer">
+        <div class="sb-footer-label">Powered by</div>
+        <div class="sb-footer-tech">Groq Whisper · Llama 3.1 · LangChain</div>
     </div>
     """, unsafe_allow_html=True)
 
-# ─── Main Content ───────────────────────────────────────────────────────────────
+# ─── Main Content — Centered ────────────────────────────────────────────────────
+st.markdown('<div class="main-wrapper">', unsafe_allow_html=True)
+
 # Hero
 st.markdown("""
-<div class="hero-container">
-    <div class="hero-badge">🚀 AI-Powered Analysis</div>
-    <div class="hero-title">AI Video Assistant</div>
-    <div class="hero-subtitle">
-        Transform any video or meeting into structured insights — transcripts, summaries, action items, and an interactive Q&A chatbot.
+<div class="hero">
+    <div class="hero-icon-wrap">🎬</div>
+    <h1>What video do you want<br><span class="hero-gradient-text">to understand today?</span></h1>
+    <div class="hero-sub">
+        Drop a YouTube URL and AI will extract transcripts, summaries, action items, and let you chat with the content.
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-st.markdown("---")
-
-# ─── Run Pipeline ───────────────────────────────────────────────────────────────
+# ─── Pipeline ───────────────────────────────────────────────────────────────────
 if run_btn:
     if not source.strip():
-        st.error("⚠️ Please enter a YouTube URL or file path in the sidebar.")
+        st.error("⚠️ Please enter a YouTube URL or file path.")
     else:
         st.session_state.pipeline_done = False
         st.session_state.result = None
@@ -789,7 +1026,7 @@ if run_btn:
 
         try:
             with progress_placeholder.container():
-                st.info("⚙️ Processing your video — pipeline is running…")
+                st.info("⚙️ Processing your video — this may take a moment…")
 
             update_step("audio", "active")
             chunks = process_input(source)
@@ -827,8 +1064,15 @@ if run_btn:
                 "rag_chain": rag_chain,
             }
             st.session_state.pipeline_done = True
-            progress_placeholder.success("✅ Analysis complete! Scroll down to see your results.")
-            time.sleep(0.8)
+            
+            # Add to history
+            st.session_state.analysis_history.append({
+                "title": title[:50],
+                "words": count_words(transcript),
+            })
+            
+            progress_placeholder.success("✅ Analysis complete!")
+            time.sleep(0.6)
             progress_placeholder.empty()
             st.rerun()
 
@@ -836,55 +1080,72 @@ if run_btn:
             for k in ["audio","transcript","title","summary","extract","rag"]:
                 if st.session_state.pipeline_steps.get(k) == "active":
                     st.session_state.pipeline_steps[k] = "pending"
-            progress_placeholder.error(f"❌ Error: {e}")
+            
+            error_msg = str(e)
+            if "rate_limit" in error_msg or "429" in error_msg or "tokens per minute" in error_msg.lower():
+                progress_placeholder.error(
+                    "⏳ **Rate limit reached.** Please wait 1-2 minutes and try again, or try a shorter video."
+                )
+            elif "413" in error_msg or "Request too large" in error_msg or "Request Entity Too Large" in error_msg:
+                progress_placeholder.error(
+                    "📏 **Video too large for free tier.** Please try a shorter video (under 5 minutes)."
+                )
+            elif "GROQ_API_KEY" in error_msg:
+                progress_placeholder.error(
+                    "🔑 **GROQ_API_KEY is missing.** Please add your key to the `.env` file."
+                )
+            else:
+                progress_placeholder.error(f"❌ Error: {e}")
 
 # ─── Results ────────────────────────────────────────────────────────────────────
 if st.session_state.result:
     r = st.session_state.result
+    
+    st.markdown("---")
 
     # Title Banner
     st.markdown(f"""
-    <div class="title-banner">
-        <div class="title-banner-icon">📌</div>
+    <div class="res-title">
+        <div class="res-title-icon">📌</div>
         <div>
-            <div class="title-banner-text">{r['title']}</div>
-            <div class="title-banner-sub">Generated meeting title</div>
+            <div class="res-title-text">{r['title']}</div>
+            <div class="res-title-sub">AI-generated meeting title</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # Metrics row
-    word_count = count_words(r['transcript'])
-    duration_est = max(1, word_count // 150)
-    chunk_count = len(r['transcript'].split('.'))
+    # Metrics
+    wc = count_words(r['transcript'])
+    dur = max(1, wc // 150)
+    sents = len([s for s in r['transcript'].split('.') if s.strip()])
     st.markdown(f"""
-    <div class="metric-row">
-        <div class="metric-card">
-            <div class="metric-value">{word_count:,}</div>
-            <div class="metric-label">Words Transcribed</div>
+    <div class="metric-strip">
+        <div class="metric-box">
+            <div class="metric-num">{wc:,}</div>
+            <div class="metric-lbl">Words</div>
         </div>
-        <div class="metric-card">
-            <div class="metric-value">~{duration_est} min</div>
-            <div class="metric-label">Estimated Duration</div>
+        <div class="metric-box">
+            <div class="metric-num">~{dur} min</div>
+            <div class="metric-lbl">Duration</div>
         </div>
-        <div class="metric-card">
-            <div class="metric-value">{chunk_count}</div>
-            <div class="metric-label">Sentences</div>
+        <div class="metric-box">
+            <div class="metric-num">{sents}</div>
+            <div class="metric-lbl">Sentences</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # Summary + Transcript row
+    # Summary + Transcript
     col1, col2 = st.columns([3, 2], gap="medium")
 
     with col1:
         st.markdown(f"""
-        <div class="glass-card">
-            <div class="card-header">
-                <div class="card-icon card-icon-purple">📋</div>
-                <div class="card-label">Summary</div>
+        <div class="g-card">
+            <div class="g-card-head">
+                <div class="g-card-icon purple">📋</div>
+                <div class="g-card-label">Summary</div>
             </div>
-            <div class="card-body">{r['summary']}</div>
+            <div class="g-card-body">{r['summary']}</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -892,11 +1153,11 @@ if st.session_state.result:
         with st.expander("📝 Full Transcript", expanded=False):
             st.markdown(f'<div class="transcript-box">{r["transcript"]}</div>', unsafe_allow_html=True)
 
-    # Extraction cards row
+    # Insights
     st.markdown("""
-    <div class="section-header">
-        <span class="section-title">🔍 Extracted Insights</span>
-        <div class="section-line"></div>
+    <div class="sec-head">
+        <span class="sec-title">🔍 Extracted Insights</span>
+        <div class="sec-line"></div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -904,90 +1165,88 @@ if st.session_state.result:
 
     with c1:
         st.markdown(f"""
-        <div class="glass-card">
-            <div class="card-header">
-                <div class="card-icon card-icon-green">✅</div>
-                <div class="card-label">Action Items</div>
+        <div class="g-card">
+            <div class="g-card-head">
+                <div class="g-card-icon green">✅</div>
+                <div class="g-card-label">Action Items</div>
             </div>
-            <div class="card-body">{r['action_items']}</div>
+            <div class="g-card-body">{r['action_items']}</div>
         </div>
         """, unsafe_allow_html=True)
 
     with c2:
         st.markdown(f"""
-        <div class="glass-card">
-            <div class="card-header">
-                <div class="card-icon card-icon-blue">🔑</div>
-                <div class="card-label">Key Decisions</div>
+        <div class="g-card">
+            <div class="g-card-head">
+                <div class="g-card-icon blue">🔑</div>
+                <div class="g-card-label">Key Decisions</div>
             </div>
-            <div class="card-body">{r['key_decisions']}</div>
+            <div class="g-card-body">{r['key_decisions']}</div>
         </div>
         """, unsafe_allow_html=True)
 
     with c3:
         st.markdown(f"""
-        <div class="glass-card">
-            <div class="card-header">
-                <div class="card-icon card-icon-amber">❓</div>
-                <div class="card-label">Open Questions</div>
+        <div class="g-card">
+            <div class="g-card-head">
+                <div class="g-card-icon amber">❓</div>
+                <div class="g-card-label">Open Questions</div>
             </div>
-            <div class="card-body">{r['open_questions']}</div>
+            <div class="g-card-body">{r['open_questions']}</div>
         </div>
         """, unsafe_allow_html=True)
 
-    st.markdown("---")
-
-    # ── RAG Chat ──────────────────────────────────────────────────────────────
+    # Chat
     st.markdown("""
-    <div class="section-header">
-        <span class="section-title">💬 Chat with Your Meeting</span>
-        <div class="section-line"></div>
+    <div class="sec-head">
+        <span class="sec-title">💬 Chat with Your Meeting</span>
+        <div class="sec-line"></div>
     </div>
     """, unsafe_allow_html=True)
 
-    # Chat history display
     if st.session_state.chat_history:
-        chat_html = '<div class="chat-wrapper">'
+        chat_html = '<div class="chat-area">'
         for msg in st.session_state.chat_history:
             if msg["role"] == "user":
                 chat_html += f"""
-                <div class="chat-msg" style="align-items:flex-end">
-                    <span class="chat-label user-label">You</span>
-                    <div class="chat-bubble user-bubble">{msg['content']}</div>
+                <div class="chat-msg">
+                    <div class="chat-avatar user">👤</div>
+                    <div class="chat-content">
+                        <div class="chat-name user">You</div>
+                        <div class="chat-text user">{msg['content']}</div>
+                    </div>
                 </div>"""
             else:
                 chat_html += f"""
-                <div class="chat-msg" style="align-items:flex-start">
-                    <span class="chat-label bot-label">🤖 Assistant</span>
-                    <div class="chat-bubble bot-bubble">{msg['content']}</div>
+                <div class="chat-msg">
+                    <div class="chat-avatar bot">🤖</div>
+                    <div class="chat-content">
+                        <div class="chat-name bot">VideoAI</div>
+                        <div class="chat-text bot">{msg['content']}</div>
+                    </div>
                 </div>"""
         chat_html += '</div>'
         st.markdown(chat_html, unsafe_allow_html=True)
     else:
         st.markdown("""
-        <div class="glass-card chat-empty">
+        <div class="g-card chat-empty">
             <div class="chat-empty-icon">💬</div>
             <div class="chat-empty-text">
-                Ask anything about your meeting — decisions, action items, specific topics, or quotes from participants.
+                Ask anything about your meeting — decisions, action items, or specific topics.
             </div>
         </div>
         """, unsafe_allow_html=True)
 
-    # Chat input
-    chat_col1, chat_col2 = st.columns([5, 1], gap="small")
-    with chat_col1:
-        user_input = st.text_input(
-            "Your question",
-            placeholder="What were the main decisions made?",
-            label_visibility="collapsed"
-        )
-    with chat_col2:
+    cc1, cc2 = st.columns([5, 1], gap="small")
+    with cc1:
+        user_input = st.text_input("Ask", placeholder="What were the main takeaways?", label_visibility="collapsed")
+    with cc2:
         send_btn = st.button("Send →", use_container_width=True)
 
     if send_btn and user_input.strip():
         with st.spinner("🤔 Thinking…"):
             answer = ask_question(r["rag_chain"], user_input.strip())
-        st.session_state.chat_history.append({"role": "user",      "content": user_input.strip()})
+        st.session_state.chat_history.append({"role": "user", "content": user_input.strip()})
         st.session_state.chat_history.append({"role": "assistant", "content": answer})
         st.rerun()
 
@@ -997,19 +1256,37 @@ if st.session_state.result:
             st.rerun()
 
 else:
-    # ── Empty State ──────────────────────────────────────────────────────────
+    # Empty state — How it works flow
     st.markdown("""
-    <div class="empty-state">
-        <div class="empty-icon">🎬</div>
-        <div class="empty-title">Ready to Analyse</div>
-        <div class="empty-desc">
-            Paste a YouTube URL or file path in the sidebar, select your language,
-            and hit <strong>Analyse Video</strong> to unlock AI-powered meeting intelligence.
+    <div class="flow-container">
+        <div class="flow-step">
+            <div class="flow-step-icon purple">🔗</div>
+            <div class="flow-step-label">Paste URL</div>
         </div>
-        <div class="feature-chips">
-            <span class="chip chip-purple">📝 Transcription</span>
-            <span class="chip chip-green">📋 Summarisation</span>
-            <span class="chip chip-blue">💬 RAG Chat</span>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step">
+            <div class="flow-step-icon blue">🎤</div>
+            <div class="flow-step-label">Transcribe</div>
+        </div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step">
+            <div class="flow-step-icon green">🧠</div>
+            <div class="flow-step-label">Analyse</div>
+        </div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step">
+            <div class="flow-step-icon cyan">💬</div>
+            <div class="flow-step-label">Chat</div>
         </div>
     </div>
+
+    <div class="cap-row">
+        <div class="cap-chip">📝 Transcription</div>
+        <div class="cap-chip">📋 Summary</div>
+        <div class="cap-chip">✅ Action Items</div>
+        <div class="cap-chip">🔑 Decisions</div>
+        <div class="cap-chip">💬 AI Chat</div>
+    </div>
     """, unsafe_allow_html=True)
+
+st.markdown('</div>', unsafe_allow_html=True)

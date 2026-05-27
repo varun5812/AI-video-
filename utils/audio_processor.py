@@ -5,6 +5,15 @@ import os
 DOWNLOAD_DIR = 'downloades'
 os.makedirs(DOWNLOAD_DIR,exist_ok = True)
 
+# Local FFmpeg path (installed via winget) - used as fallback
+FFMPEG_PATH = r"C:\Users\varun\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.1-full_build\bin\ffmpeg.exe"
+
+if os.path.exists(FFMPEG_PATH):
+    AudioSegment.converter = FFMPEG_PATH
+    ffprobe_path = FFMPEG_PATH.replace("ffmpeg.exe", "ffprobe.exe")
+    if os.path.exists(ffprobe_path):
+        AudioSegment.ffprobe = ffprobe_path
+
 def download_youtube_audio(url :str) ->str:
     output_path = os.path.join(DOWNLOAD_DIR, "%(title)s.%(ext)s")
     ydl_opts = {
@@ -19,6 +28,10 @@ def download_youtube_audio(url :str) ->str:
         ],
         "quiet": True,
     }
+    
+    if os.path.exists(FFMPEG_PATH):
+        ydl_opts["ffmpeg_location"] = FFMPEG_PATH
+
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
         filename = ydl.prepare_filename(info).replace(".webm", ".wav").replace(".m4a", ".wav")
@@ -36,8 +49,10 @@ def convert_to_wav(input_path: str) -> str:
 
 
 
-def chunk_audio(wav_path : str , chunk_minutes : int = 10) -> list:
-    audio = AudioSegment.from_wav(wav_path)
+def chunk_audio(wav_path : str , chunk_minutes : int = 5) -> list:
+    audio = AudioSegment.from_file(wav_path)
+    # Downsample to 16kHz mono to guarantee chunk size stays under 25MB limit
+    audio = audio.set_channels(1).set_frame_rate(16000)
     chunk_ms = chunk_minutes * 60 * 1000 
 
     chunks = []

@@ -1,7 +1,9 @@
 import os
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pydub import AudioSegment
 from groq import Groq
+from dotenv import load_dotenv
 
 # ─── Groq Whisper Config ────────────────────────────────────────────────────────
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -103,19 +105,25 @@ def transcribe_chunk(chunk_path: str, language: str = "english") -> str:
 
 def transcribe_all(chunks: list, language: str = "english") -> str:
 
-    full_transcript = ""
-
     engine = "Sarvam AI" if language.lower() == "hinglish" else "Groq Whisper"
     print(f"Using {engine} for transcription.")
 
-    for i, chunk in enumerate(chunks):
+    max_workers = min(len(chunks), int(os.getenv("TRANSCRIPTION_WORKERS", "3")))
+    transcripts = [""] * len(chunks)
 
-        print(f"Transcribing chunk {i + 1}/{len(chunks)}...")
+    def transcribe_indexed(index: int, chunk_path: str):
+        print(f"Transcribing chunk {index + 1}/{len(chunks)}...")
+        return index, transcribe_chunk(chunk_path, language=language)
 
-        text = transcribe_chunk(chunk, language=language)
-
-        full_transcript += text + " "
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [
+            executor.submit(transcribe_indexed, i, chunk)
+            for i, chunk in enumerate(chunks)
+        ]
+        for future in as_completed(futures):
+            index, text = future.result()
+            transcripts[index] = text
 
     print("Transcription complete.")
 
-    return full_transcript.strip()
+    return " ".join(transcripts).strip()
