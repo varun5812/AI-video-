@@ -12,7 +12,7 @@ load_dotenv()  # MUST be before core imports
 from utils.audio_processor import process_input
 from core.transcriber import transcribe_all
 from core.summarizer import summarize, generate_title
-from core.extractor import extract_action_items, extract_key_decisions, extract_questions
+from core.extractor import extract_all_insights
 from core.rag_engine import build_rag_chain, ask_question
 
 # ─── Page Config ────────────────────────────────────────────────────────────────
@@ -172,6 +172,136 @@ html, body, [class*="css"] {
 @keyframes ripple {
     0%   { transform: scale(0.8); opacity: 1; }
     100% { transform: scale(2.5); opacity: 0; }
+}
+
+@keyframes progressShimmer {
+    0%   { background-position: -300px 0; }
+    100% { background-position: 300px 0; }
+}
+
+@keyframes progressGlow {
+    0%, 100% { box-shadow: 0 0 8px rgba(139,92,246,0.3), 0 0 20px rgba(139,92,246,0.1); }
+    50%      { box-shadow: 0 0 16px rgba(139,92,246,0.5), 0 0 40px rgba(139,92,246,0.2); }
+}
+
+@keyframes dotPulse {
+    0%, 80%, 100% { transform: scale(0); opacity: 0.5; }
+    40% { transform: scale(1); opacity: 1; }
+}
+
+/* ══════════════════════════════════════════════════════════
+   LOADING / PROGRESS BAR
+   ══════════════════════════════════════════════════════════ */
+.loading-container {
+    max-width: 520px;
+    margin: 2rem auto;
+    padding: 2rem 2.5rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    text-align: center;
+    animation: fadeScale 0.5s ease-out;
+    backdrop-filter: blur(12px);
+}
+
+.loading-icon {
+    font-size: 2.5rem;
+    margin-bottom: 0.75rem;
+    animation: float 2.5s ease-in-out infinite;
+}
+
+.loading-title {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 0.3rem;
+    letter-spacing: -0.02em;
+}
+
+.loading-percent {
+    font-size: 2.2rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, #8b5cf6, #06b6d4);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 0.5rem;
+    line-height: 1.2;
+}
+
+.loading-bar-track {
+    width: 100%;
+    height: 18px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 100px;
+    overflow: hidden;
+    position: relative;
+    margin-bottom: 0.85rem;
+    border: 1px solid rgba(255,255,255,0.04);
+}
+
+.loading-bar-fill {
+    height: 100%;
+    border-radius: 100px;
+    background: linear-gradient(90deg, #8b5cf6, #a855f7, #06b6d4, #8b5cf6);
+    background-size: 300px 100%;
+    animation: progressShimmer 2s linear infinite, progressGlow 2s ease-in-out infinite;
+    transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+}
+
+.loading-bar-fill::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(255,255,255,0.25) 50%,
+        transparent 100%
+    );
+    background-size: 200px 100%;
+    animation: progressShimmer 1.5s linear infinite;
+}
+
+.loading-step {
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.loading-step-icon {
+    font-size: 1rem;
+}
+
+.loading-dots {
+    display: inline-flex;
+    gap: 3px;
+    margin-left: 4px;
+}
+
+.loading-dots span {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+    display: inline-block;
+    animation: dotPulse 1.4s ease-in-out infinite;
+}
+
+.loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+.loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+.loading-wait {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    margin-top: 0.7rem;
+    font-weight: 500;
+    letter-spacing: 0.03em;
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -923,6 +1053,25 @@ for key, default in {
 def count_words(text: str) -> int:
     return len(text.split()) if text else 0
 
+def render_loading(percent, step_icon, step_text, placeholder):
+    """Render a smooth animated loading bar with percentage and step label."""
+    placeholder.markdown(f"""
+    <div class="loading-container">
+        <div class="loading-icon">🧠</div>
+        <div class="loading-title">Analyzing Your Video</div>
+        <div class="loading-percent">{percent}%</div>
+        <div class="loading-bar-track">
+            <div class="loading-bar-fill" style="width: {percent}%;"></div>
+        </div>
+        <div class="loading-step">
+            <span class="loading-step-icon">{step_icon}</span>
+            {step_text}
+            <span class="loading-dots"><span></span><span></span><span></span></span>
+        </div>
+        <div class="loading-wait">Please wait — this usually takes 15-30 seconds</div>
+    </div>
+    """, unsafe_allow_html=True)
+
 # ─── Sidebar — ChatGPT Style ────────────────────────────────────────────────────
 with st.sidebar:
     # Brand
@@ -1025,31 +1174,41 @@ if run_btn:
             st.session_state.pipeline_steps[key] = state
 
         try:
-            with progress_placeholder.container():
-                st.info("⚙️ Processing your video — this may take a moment…")
-
+            # Step 1: Audio extraction (0% → 15%)
+            render_loading(5, "🔊", "Downloading & extracting audio", progress_placeholder)
             update_step("audio", "active")
             chunks = process_input(source)
             update_step("audio", "done")
 
+            # Step 2: Transcription (15% → 40%)
+            render_loading(20, "📝", "Transcribing audio with Whisper", progress_placeholder)
             update_step("transcript", "active")
             transcript = transcribe_all(chunks, language)
             update_step("transcript", "done")
 
+            # Step 3: Title generation (40% → 50%)
+            render_loading(45, "🏷️", "Generating video title", progress_placeholder)
             update_step("title", "active")
             title = generate_title(transcript)
             update_step("title", "done")
 
+            # Step 4: Summarization (50% → 65%)
+            render_loading(55, "📋", "Creating intelligent summary", progress_placeholder)
             update_step("summary", "active")
             summary = summarize(transcript)
             update_step("summary", "done")
 
+            # Step 5: Insight extraction — SINGLE combined call (65% → 85%)
+            render_loading(70, "🔍", "Extracting insights & action items", progress_placeholder)
             update_step("extract", "active")
-            action_items  = extract_action_items(transcript)
-            decisions     = extract_key_decisions(transcript)
-            questions     = extract_questions(transcript)
+            insights = extract_all_insights(transcript)
+            action_items = insights["action_items"]
+            decisions    = insights["key_decisions"]
+            questions    = insights["open_questions"]
             update_step("extract", "done")
 
+            # Step 6: RAG engine (85% → 100%)
+            render_loading(90, "🧠", "Building knowledge engine", progress_placeholder)
             update_step("rag", "active")
             rag_chain = build_rag_chain(transcript)
             update_step("rag", "done")
@@ -1070,9 +1229,10 @@ if run_btn:
                 "title": title[:50],
                 "words": count_words(transcript),
             })
-            
-            progress_placeholder.success("✅ Analysis complete!")
-            time.sleep(0.6)
+
+            # Show 100% briefly
+            render_loading(100, "✅", "Analysis complete!", progress_placeholder)
+            time.sleep(0.8)
             progress_placeholder.empty()
             st.rerun()
 
@@ -1153,50 +1313,7 @@ if st.session_state.result:
         with st.expander("📝 Full Transcript", expanded=False):
             st.markdown(f'<div class="transcript-box">{r["transcript"]}</div>', unsafe_allow_html=True)
 
-    # Insights
-    st.markdown("""
-    <div class="sec-head">
-        <span class="sec-title">🔍 Extracted Insights</span>
-        <div class="sec-line"></div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    c1, c2, c3 = st.columns(3, gap="medium")
-
-    with c1:
-        st.markdown(f"""
-        <div class="g-card">
-            <div class="g-card-head">
-                <div class="g-card-icon green">✅</div>
-                <div class="g-card-label">Action Items</div>
-            </div>
-            <div class="g-card-body">{r['action_items']}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with c2:
-        st.markdown(f"""
-        <div class="g-card">
-            <div class="g-card-head">
-                <div class="g-card-icon blue">🔑</div>
-                <div class="g-card-label">Key Decisions</div>
-            </div>
-            <div class="g-card-body">{r['key_decisions']}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with c3:
-        st.markdown(f"""
-        <div class="g-card">
-            <div class="g-card-head">
-                <div class="g-card-icon amber">❓</div>
-                <div class="g-card-label">Open Questions</div>
-            </div>
-            <div class="g-card-body">{r['open_questions']}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    # Chat
+    # ─── Chat (MOVED ABOVE Insights) ────────────────────────────────────────────
     st.markdown("""
     <div class="sec-head">
         <span class="sec-title">💬 Chat with Your Meeting</span>
@@ -1254,6 +1371,49 @@ if st.session_state.result:
         if st.button("🗑️  Clear Chat", type="secondary"):
             st.session_state.chat_history = []
             st.rerun()
+
+    # ─── Insights (MOVED BELOW Chat) ────────────────────────────────────────────
+    st.markdown("""
+    <div class="sec-head">
+        <span class="sec-title">🔍 Extracted Insights</span>
+        <div class="sec-line"></div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    c1, c2, c3 = st.columns(3, gap="medium")
+
+    with c1:
+        st.markdown(f"""
+        <div class="g-card">
+            <div class="g-card-head">
+                <div class="g-card-icon green">✅</div>
+                <div class="g-card-label">Action Items</div>
+            </div>
+            <div class="g-card-body">{r['action_items']}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with c2:
+        st.markdown(f"""
+        <div class="g-card">
+            <div class="g-card-head">
+                <div class="g-card-icon blue">🔑</div>
+                <div class="g-card-label">Key Decisions</div>
+            </div>
+            <div class="g-card-body">{r['key_decisions']}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with c3:
+        st.markdown(f"""
+        <div class="g-card">
+            <div class="g-card-head">
+                <div class="g-card-icon amber">❓</div>
+                <div class="g-card-label">Open Questions</div>
+            </div>
+            <div class="g-card-body">{r['open_questions']}</div>
+        </div>
+        """, unsafe_allow_html=True)
 
 else:
     # Empty state — How it works flow

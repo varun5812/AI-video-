@@ -1,57 +1,93 @@
-#Actionableitems , decision , questions 
-from dotenv import load_dotenv 
+"""
+Extracts action items, key decisions, and open questions from a transcript.
+Uses a SINGLE combined LLM call to avoid rate-limit issues on Groq free tier.
+"""
+from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough, RunnableLambda
-import time
-import os 
+import os
+import json
+import re
 
-# Max characters to send to Groq to stay under free-tier token limits
-MAX_TRANSCRIPT_CHARS = 3000
+MAX_TRANSCRIPT_CHARS = 3500
+
 
 def get_llm():
-    return ChatGroq(model="llama-3.1-8b-instant", api_key=os.getenv("GROQ_API_KEY"), temperature=0.2)
+    return ChatGroq(
+        model="llama-3.1-8b-instant",
+        api_key=os.getenv("GROQ_API_KEY"),
+        temperature=0.2,
+    )
 
 
-
-def build_chain(system_prompt : str):
+def extract_all_insights(transcript: str) -> dict:
+    """
+    Extract action items, key decisions, and open questions in ONE API call.
+    Returns a dict with keys: action_items, key_decisions, open_questions.
+    """
     llm = get_llm()
-    return (
-        RunnablePassthrough() | RunnableLambda(lambda x : {"text" : x}) |ChatPromptTemplate.from_messages([
-        ("system", system_prompt),
-        ("human","{text}"),
-    ]) | llm |StrOutputParser()
-    )
 
-def extract_action_items(transcript:str)->str:
-    chain = build_chain(
-         "You are an expert meeting analyst. From the meeting transcript, "
-        "extract all action items. For each provide:\n"
-        "- Task description\n"
-        "- Owner (who is responsible)\n"
-        "- Deadline (if mentioned, else write 'Not specified')\n\n"
-        "Format as a numbered list. If none found say 'No action items found.'"
-    )
+    prompt = ChatPromptTemplate.from_messages([
+        ("system",
+         "You are an expert meeting analyst. Analyze the meeting transcript and extract THREE categories of insights.\n\n"
+         "Return your response in EXACTLY this format with these three sections:\n\n"
+         "## Action Items\n"
+         "- [action item 1 with owner and deadline if mentioned]\n"
+         "- [action item 2]\n"
+         "(If none found, write: No specific action items identified in this content.)\n\n"
+         "## Key Decisions\n"
+         "- [decision 1]\n"
+         "- [decision 2]\n"
+         "(If none found, write: No specific key decisions identified in this content.)\n\n"
+         "## Open Questions\n"
+         "- [question 1]\n"
+         "- [question 2]\n"
+         "(If none found, write: No specific open questions identified in this content.)\n\n"
+         "IMPORTANT: Always provide thoughtful analysis. Even for informal content, identify implied action items, "
+         "decisions or topics discussed, and questions raised or left unanswered. Be thorough."),
+        ("human", "{text}"),
+    ])
 
-    return chain.invoke(transcript[:MAX_TRANSCRIPT_CHARS])
+    chain = prompt | llm | StrOutputParser()
+    result = chain.invoke({"text": transcript[:MAX_TRANSCRIPT_CHARS]})
+
+    # Parse the sections
+    parsed = {
+        "action_items": "No specific action items identified.",
+        "key_decisions": "No specific key decisions identified.",
+        "open_questions": "No specific open questions identified.",
+    }
+
+    sections = re.split(r'##\s+', result)
+    for section in sections:
+        section_lower = section.lower()
+        # Get the content after the header line
+        lines = section.strip().split('\n', 1)
+        content = lines[1].strip() if len(lines) > 1 else ""
+
+        if content:
+            if 'action item' in section_lower:
+                parsed["action_items"] = content
+            elif 'key decision' in section_lower:
+                parsed["key_decisions"] = content
+            elif 'open question' in section_lower:
+                parsed["open_questions"] = content
+
+    return parsed
+
+
+# Keep individual functions for backward compatibility
+def extract_action_items(transcript: str) -> str:
+    """Kept for compatibility — use extract_all_insights() instead."""
+    return extract_all_insights(transcript)["action_items"]
 
 
 def extract_key_decisions(transcript: str) -> str:
-    time.sleep(12)  # Rate limit delay for Groq free tier
-    chain = build_chain(
-        "You are an expert meeting analyst. From the meeting transcript, "
-        "extract all key decisions made. Format as a numbered list. "
-        "If none found say 'No key decisions found.'"
-    )
-    return chain.invoke(transcript[:MAX_TRANSCRIPT_CHARS])
+    """Kept for compatibility — use extract_all_insights() instead."""
+    return extract_all_insights(transcript)["key_decisions"]
 
 
 def extract_questions(transcript: str) -> str:
-    time.sleep(12)  # Rate limit delay for Groq free tier
-    chain = build_chain(
-        "From the meeting transcript, extract all unresolved questions "
-        "or topics needing follow-up. Format as a numbered list. "
-        "If none found say 'No open questions found.'"
-    )
-    return chain.invoke(transcript[:MAX_TRANSCRIPT_CHARS])
+    """Kept for compatibility — use extract_all_insights() instead."""
+    return extract_all_insights(transcript)["open_questions"]
