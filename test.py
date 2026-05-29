@@ -1,5 +1,5 @@
 from dotenv import load_dotenv
-load_dotenv()   # MUST be before any core/ imports
+load_dotenv(override=True)   # MUST be before any core/ imports
 
 from utils.audio_processor import process_input
 from core.transcriber import transcribe_all
@@ -34,9 +34,12 @@ print(summary)
 
 
 
-action_items = extract_action_items(transcript)
-decisions = extract_key_decisions(transcript)
-questions = extract_questions(transcript)
+from core.extractor import extract_all_insights
+
+insights = extract_all_insights(transcript)
+action_items = insights["action_items"]
+decisions = insights["key_decisions"]
+questions = insights["open_questions"]
 
 print("\n" + "=" * 60)
 print("✅ ACTION ITEMS")

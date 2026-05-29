@@ -2,12 +2,13 @@ import os
 
 os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 import streamlit as st
 import time
 from dotenv import load_dotenv
 
-load_dotenv()  # MUST be before core imports
+load_dotenv(override=True)  # MUST be before core imports
 
 from utils.audio_processor import process_input
 from core.transcriber import transcribe_all

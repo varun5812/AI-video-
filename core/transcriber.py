@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pydub import AudioSegment
 from groq import Groq
 from dotenv import load_dotenv
+load_dotenv(override=True)
 
 # ─── Groq Whisper Config ────────────────────────────────────────────────────────
 GROQ_WHISPER_MODEL = "whisper-large-v3"
@@ -13,6 +14,8 @@ SARVAM_PIECE_SECONDS = 25
 SARVAM_STT_TRANSLATE_URL = "https://api.sarvam.ai/speech-to-text-translate"
 SARVAM_MODEL = os.getenv("SARVAM_STT_MODEL", "saaras:v2.5")
 
+
+import time
 
 # ─── Groq Whisper Transcription ─────────────────────────────────────────────────
 def transcribe_chunk_groq(chunk_path: str) -> str:
@@ -26,15 +29,24 @@ def transcribe_chunk_groq(chunk_path: str) -> str:
 
     client = Groq(api_key=api_key)
 
-    with open(chunk_path, "rb") as audio_file:
-        transcription = client.audio.transcriptions.create(
-            file=(os.path.basename(chunk_path), audio_file),
-            model=GROQ_WHISPER_MODEL,
-            response_format="text",
-            language="en",
-        )
-
-    return transcription.strip() if isinstance(transcription, str) else transcription.text.strip()
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            with open(chunk_path, "rb") as audio_file:
+                transcription = client.audio.transcriptions.create(
+                    file=(os.path.basename(chunk_path), audio_file),
+                    model=GROQ_WHISPER_MODEL,
+                    response_format="text",
+                    language="en",
+                )
+            
+            return transcription.strip() if isinstance(transcription, str) else transcription.text.strip()
+        except Exception as e:
+            if ("rate_limit" in str(e).lower() or "429" in str(e)) and attempt < max_retries - 1:
+                print(f"Rate limit hit, retrying in {3 ** attempt} seconds...")
+                time.sleep(3 ** attempt)
+            else:
+                raise e
 
 
 # ─── Sarvam (Hinglish) Transcription ────────────────────────────────────────────
@@ -107,7 +119,7 @@ def transcribe_all(chunks: list, language: str = "english") -> str:
     engine = "Sarvam AI" if language.lower() == "hinglish" else "Groq Whisper"
     print(f"Using {engine} for transcription.")
 
-    max_workers = min(len(chunks), int(os.getenv("TRANSCRIPTION_WORKERS", "3")))
+    max_workers = min(len(chunks), int(os.getenv("TRANSCRIPTION_WORKERS", "1")))
     transcripts = [""] * len(chunks)
 
     def transcribe_indexed(index: int, chunk_path: str):

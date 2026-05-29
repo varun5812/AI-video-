@@ -11,6 +11,7 @@ def get_llm():
         model="llama-3.1-8b-instant",
         api_key=os.getenv("GROQ_API_KEY"),
         temperature=0.3,
+        max_retries=5,
     )
 
 def format_docs(docs):

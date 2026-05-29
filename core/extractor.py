@@ -3,6 +3,7 @@ Extracts action items, key decisions, and open questions from a transcript.
 Uses a SINGLE combined LLM call to avoid rate-limit issues on Groq free tier.
 """
 from dotenv import load_dotenv
+load_dotenv(override=True)
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -18,6 +19,7 @@ def get_llm():
         model="llama-3.1-8b-instant",
         api_key=os.getenv("GROQ_API_KEY"),
         temperature=0.2,
+        max_retries=5,
     )
 
 
