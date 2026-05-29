@@ -50,27 +50,61 @@ def get_youtube_transcript(url: str) -> str | None:
         print("Could not extract video ID from URL.")
         return None
 
+    ytt_api = YouTubeTranscriptApi()
+
+    # Try multiple language combinations — most YouTube videos have at least one
+    language_attempts = [
+        ["en"],
+        ["en-US", "en-GB", "en-IN"],
+        ["hi"],
+        ["en", "hi", "en-IN", "en-US"],
+    ]
+
+    for langs in language_attempts:
+        try:
+            fetched = ytt_api.fetch(video_id, languages=langs)
+            full_text = " ".join(snippet.text for snippet in fetched).strip()
+
+            if len(full_text) >= 20:
+                print(f"Fetched YouTube captions ({len(full_text)} chars, langs={langs})")
+                return full_text
+
+        except Exception as e:
+            print(f"Caption attempt with {langs} failed: {e}")
+            continue
+
+    # Last resort: list all available transcripts and try translate to English
     try:
-        ytt_api = YouTubeTranscriptApi()
-
-        # Fetch transcript — tries English first, then falls back
-        fetched = ytt_api.fetch(video_id, languages=["en", "hi", "en-IN"])
-
-        # Build full text from snippet entries
-        full_text = " ".join(
-            snippet.text for snippet in fetched
-        ).strip()
-
-        if len(full_text) < 20:
-            print("Transcript too short / empty — falling back to audio.")
-            return None
-
-        print(f"✅ Fetched YouTube captions ({len(full_text)} chars)")
-        return full_text
-
+        transcript_list = ytt_api.list(video_id)
+        for t in transcript_list:
+            try:
+                # If it's already English-ish, fetch directly
+                if t.language_code.startswith("en"):
+                    fetched = t.fetch()
+                    full_text = " ".join(snippet.text for snippet in fetched).strip()
+                    if len(full_text) >= 20:
+                        print(f"Fetched captions via list ({len(full_text)} chars, lang={t.language_code})")
+                        return full_text
+                else:
+                    # Try to translate non-English captions to English
+                    try:
+                        translated = t.translate("en")
+                        fetched = translated.fetch()
+                        full_text = " ".join(snippet.text for snippet in fetched).strip()
+                        if len(full_text) >= 20:
+                            print(f"Fetched translated captions ({len(full_text)} chars, {t.language_code}->en)")
+                            return full_text
+                    except Exception:
+                        # Translation not available — skip this one
+                        print(f"Translation from {t.language_code} to English not available.")
+                        continue
+            except Exception:
+                continue
     except Exception as e:
-        print(f"Caption fetch failed ({e}) — will fall back to audio download.")
-        return None
+        print(f"Listing transcripts also failed: {e}")
+
+    print("No usable captions found for this video.")
+    return None
 
 
 # ── Audio download (yt-dlp) — fallback ────────────────────────────────────────

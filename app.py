@@ -1172,6 +1172,7 @@ if run_btn:
 
         try:
             is_youtube = source.strip().startswith("http") and ("youtu" in source)
+            is_cloud = bool(os.getenv("RENDER") or os.getenv("PORT"))
             transcript = None
 
             # ── Strategy 1: YouTube captions (fast, no download, no bot detection)
@@ -1185,8 +1186,16 @@ if run_btn:
                 # Captions fetched successfully — skip audio download entirely
                 update_step("audio", "done")
                 update_step("transcript", "done")
+            elif is_youtube and is_cloud:
+                # On cloud servers, yt-dlp ALWAYS fails (YouTube blocks datacenter IPs)
+                # So don't even try — show a clear error instead
+                raise RuntimeError(
+                    "Could not fetch captions for this video. "
+                    "This video may not have subtitles/captions enabled on YouTube. "
+                    "Please try a different video that has captions, or run the app locally."
+                )
             else:
-                # ── Strategy 2: Download audio → Whisper (local files or no captions)
+                # ── Strategy 2: Download audio → Whisper (localhost only, or local files)
                 render_loading(5, "🔊", "Downloading & extracting audio", progress_placeholder)
                 update_step("audio", "active")
                 chunks = process_input(source)
