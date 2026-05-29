@@ -3,8 +3,6 @@ import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pydub import AudioSegment
 from groq import Groq
-from dotenv import load_dotenv
-load_dotenv(override=True)
 
 # ─── Groq Whisper Config ────────────────────────────────────────────────────────
 GROQ_WHISPER_MODEL = "whisper-large-v3"

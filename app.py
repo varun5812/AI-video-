@@ -1,16 +1,12 @@
 import os
 
-os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
-os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-
 import streamlit as st
 import time
 from dotenv import load_dotenv
 
 load_dotenv(override=True)  # MUST be before core imports
 
-from utils.audio_processor import process_input
+from utils.audio_processor import process_input, get_youtube_transcript
 from core.transcriber import transcribe_all
 from core.summarizer import summarize, generate_title
 from core.extractor import extract_all_insights
@@ -1175,17 +1171,31 @@ if run_btn:
             st.session_state.pipeline_steps[key] = state
 
         try:
-            # Step 1: Audio extraction (0% → 15%)
-            render_loading(5, "🔊", "Downloading & extracting audio", progress_placeholder)
-            update_step("audio", "active")
-            chunks = process_input(source)
-            update_step("audio", "done")
+            is_youtube = source.strip().startswith("http") and ("youtu" in source)
+            transcript = None
 
-            # Step 2: Transcription (15% → 40%)
-            render_loading(20, "📝", "Transcribing audio with Whisper", progress_placeholder)
-            update_step("transcript", "active")
-            transcript = transcribe_all(chunks, language)
-            update_step("transcript", "done")
+            # ── Strategy 1: YouTube captions (fast, no download, no bot detection)
+            if is_youtube:
+                render_loading(5, "📝", "Fetching YouTube captions", progress_placeholder)
+                update_step("audio", "active")
+                update_step("transcript", "active")
+                transcript = get_youtube_transcript(source)
+
+            if transcript:
+                # Captions fetched successfully — skip audio download entirely
+                update_step("audio", "done")
+                update_step("transcript", "done")
+            else:
+                # ── Strategy 2: Download audio → Whisper (local files or no captions)
+                render_loading(5, "🔊", "Downloading & extracting audio", progress_placeholder)
+                update_step("audio", "active")
+                chunks = process_input(source)
+                update_step("audio", "done")
+
+                render_loading(20, "📝", "Transcribing audio with Whisper", progress_placeholder)
+                update_step("transcript", "active")
+                transcript = transcribe_all(chunks, language)
+                update_step("transcript", "done")
 
             # Step 3: Title generation (40% → 50%)
             render_loading(45, "🏷️", "Generating video title", progress_placeholder)

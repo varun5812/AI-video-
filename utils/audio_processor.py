@@ -1,20 +1,82 @@
+"""
+Audio / transcript acquisition utilities.
+
+Strategy for YouTube URLs (in order):
+  1. Try youtube-transcript-api to fetch existing captions — instant, no
+     download, works on all cloud servers (no bot detection issues).
+  2. Fall back to yt-dlp audio download → Groq Whisper transcription if
+     captions are unavailable.
+
+For local files the audio-download path is always used.
+"""
+
+import os
+import re
 import yt_dlp
 from pydub import AudioSegment
-import os
 
-DOWNLOAD_DIR = 'downloades'
-os.makedirs(DOWNLOAD_DIR,exist_ok = True)
+DOWNLOAD_DIR = "downloads"
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# Local FFmpeg path (installed via winget) - used as fallback
-FFMPEG_PATH = r"C:\Users\varun\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.1-full_build\bin\ffmpeg.exe"
 
-if os.path.exists(FFMPEG_PATH):
-    AudioSegment.converter = FFMPEG_PATH
-    ffprobe_path = FFMPEG_PATH.replace("ffmpeg.exe", "ffprobe.exe")
-    if os.path.exists(ffprobe_path):
-        AudioSegment.ffprobe = ffprobe_path
+# ── YouTube transcript (captions) ─────────────────────────────────────────────
 
-def download_youtube_audio(url :str) ->str:
+def extract_video_id(url: str) -> str | None:
+    """Extract the YouTube video ID from various URL formats."""
+    patterns = [
+        r"(?:v=|/v/|youtu\.be/|/embed/)([a-zA-Z0-9_-]{11})",
+        r"^([a-zA-Z0-9_-]{11})$",
+    ]
+    for pat in patterns:
+        m = re.search(pat, url)
+        if m:
+            return m.group(1)
+    return None
+
+
+def get_youtube_transcript(url: str) -> str | None:
+    """
+    Try to fetch the transcript via YouTube's caption system.
+    Returns the full transcript text, or None if captions are not available.
+    """
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+    except ImportError:
+        print("youtube-transcript-api not installed — skipping caption fetch.")
+        return None
+
+    video_id = extract_video_id(url)
+    if not video_id:
+        print("Could not extract video ID from URL.")
+        return None
+
+    try:
+        ytt_api = YouTubeTranscriptApi()
+
+        # Fetch transcript — tries English first, then falls back
+        fetched = ytt_api.fetch(video_id, languages=["en", "hi", "en-IN"])
+
+        # Build full text from snippet entries
+        full_text = " ".join(
+            snippet.text for snippet in fetched
+        ).strip()
+
+        if len(full_text) < 20:
+            print("Transcript too short / empty — falling back to audio.")
+            return None
+
+        print(f"✅ Fetched YouTube captions ({len(full_text)} chars)")
+        return full_text
+
+    except Exception as e:
+        print(f"Caption fetch failed ({e}) — will fall back to audio download.")
+        return None
+
+
+# ── Audio download (yt-dlp) — fallback ────────────────────────────────────────
+
+def download_youtube_audio(url: str) -> str:
+    """Download audio from YouTube using yt-dlp and convert to WAV."""
     output_path = os.path.join(DOWNLOAD_DIR, "%(title)s.%(ext)s")
     ydl_opts = {
         "format": "bestaudio/best",
@@ -27,54 +89,45 @@ def download_youtube_audio(url :str) ->str:
             }
         ],
         "quiet": True,
-        # Bypass YouTube bot detection on cloud servers
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["android", "web"]
-            }
-        }
     }
-    
-    if os.path.exists(FFMPEG_PATH):
-        ydl_opts["ffmpeg_location"] = FFMPEG_PATH
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
-        # yt-dlp converts the file to .wav, so we must replace whatever original extension it had with .wav
         base_filename = ydl.prepare_filename(info)
         filename = os.path.splitext(base_filename)[0] + ".wav"
     return filename
-
 
 
 def convert_to_wav(input_path: str) -> str:
     """Convert any audio/video file to WAV format using pydub."""
     output_path = os.path.splitext(input_path)[0] + "_converted.wav"
     audio = AudioSegment.from_file(input_path)
-    audio = audio.set_channels(1).set_frame_rate(16000) #16khz
+    audio = audio.set_channels(1).set_frame_rate(16000)
     audio.export(output_path, format="wav")
     return output_path
 
 
-
-def chunk_audio(wav_path : str , chunk_minutes : int = 5) -> list:
+def chunk_audio(wav_path: str, chunk_minutes: int = 5) -> list:
+    """Split a WAV file into chunks for the Whisper API (≤25 MB each)."""
     audio = AudioSegment.from_file(wav_path)
-    # Downsample to 16kHz mono to guarantee chunk size stays under 25MB limit
     audio = audio.set_channels(1).set_frame_rate(16000)
-    chunk_ms = chunk_minutes * 60 * 1000 
+    chunk_ms = chunk_minutes * 60 * 1000
 
     chunks = []
-
-    for i, start in enumerate(range(0,len(audio),chunk_ms)):
+    for i, start in enumerate(range(0, len(audio), chunk_ms)):
         chunk = audio[start : start + chunk_ms]
         chunk_path = f"{wav_path}_chunk_{i}.wav"
-        chunk.export(chunk_path , format = "wav")
-
+        chunk.export(chunk_path, format="wav")
         chunks.append(chunk_path)
-    
+
     return chunks
 
+
 def process_input(source: str) -> list:
+    """
+    Process a YouTube URL or local file path.
+    Returns a list of WAV chunk file paths for transcription.
+    """
     if source.startswith("http://") or source.startswith("https://"):
         print("Detected YouTube URL. Downloading audio...")
         wav_path = download_youtube_audio(source)
@@ -86,5 +139,3 @@ def process_input(source: str) -> list:
     chunks = chunk_audio(wav_path)
     print(f"Audio ready — {len(chunks)} chunk(s) created.")
     return chunks
-
-
