@@ -14,6 +14,7 @@ For local files the audio-download path is always used.
 
 import os
 import re
+import base64
 import requests as _requests
 import yt_dlp
 from pydub import AudioSegment
@@ -30,6 +31,92 @@ _BROWSER_HEADERS = {
     "Accept-Language": "en-US,en;q=0.9,hi;q=0.8",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
+
+
+def _decode_cookie_env() -> str | None:
+    """Read YouTube cookies from Render env vars without ever committing them."""
+    raw_b64 = os.getenv("YOUTUBE_COOKIES_B64", "").strip()
+    raw_txt = os.getenv("YOUTUBE_COOKIES_TXT", "").strip()
+
+    if raw_b64:
+        try:
+            return base64.b64decode(raw_b64).decode("utf-8")
+        except Exception as e:
+            print(f"[YouTube cookies] Could not decode YOUTUBE_COOKIES_B64: {e}")
+            return None
+
+    if raw_txt.startswith("base64:"):
+        try:
+            return base64.b64decode(raw_txt.removeprefix("base64:")).decode("utf-8")
+        except Exception as e:
+            print(f"[YouTube cookies] Could not decode base64 YOUTUBE_COOKIES_TXT: {e}")
+            return None
+
+    if raw_txt:
+        return raw_txt.replace("\\n", "\n")
+
+    return None
+
+
+def get_youtube_cookiefile() -> str | None:
+    """
+    Return a Netscape cookies.txt path for yt-dlp.
+
+    On Render, set YOUTUBE_COOKIES_B64 to a base64-encoded cookies.txt export.
+    A direct YOUTUBE_COOKIES_FILE path also works for local/deployed filesystems.
+    """
+    existing = os.getenv("YOUTUBE_COOKIES_FILE", "").strip()
+    if existing and os.path.exists(existing):
+        return existing
+
+    cookie_text = _decode_cookie_env()
+    if not cookie_text:
+        return None
+
+    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+    cookie_path = os.path.join(DOWNLOAD_DIR, "youtube_cookies.txt")
+    try:
+        with open(cookie_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(cookie_text.strip() + "\n")
+        return cookie_path
+    except Exception as e:
+        print(f"[YouTube cookies] Could not write cookies file: {e}")
+        return None
+
+
+def has_youtube_cookies() -> bool:
+    return bool(get_youtube_cookiefile())
+
+
+def _with_youtube_cookies(ydl_opts: dict) -> dict:
+    cookiefile = get_youtube_cookiefile()
+    if cookiefile:
+        ydl_opts = dict(ydl_opts)
+        ydl_opts["cookiefile"] = cookiefile
+        print("[YouTube cookies] Using cookiefile for yt-dlp.")
+    return ydl_opts
+
+
+def _load_cookies_into_session(session) -> None:
+    """Load Netscape cookies into a requests session for caption API attempts."""
+    cookiefile = get_youtube_cookiefile()
+    if not cookiefile:
+        return
+
+    try:
+        with open(cookiefile, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split("\t")
+                if len(parts) < 7:
+                    continue
+                domain, _, path, _, _, name, value = parts[:7]
+                session.cookies.set(name, value, domain=domain, path=path)
+        print("[YouTube cookies] Loaded cookies for caption requests.")
+    except Exception as e:
+        print(f"[YouTube cookies] Could not load cookies into session: {e}")
 
 
 # ── YouTube transcript (captions) ─────────────────────────────────────────────
@@ -67,6 +154,7 @@ def get_youtube_transcript(url: str) -> str | None:
     session = requests.Session()
     # Use a modern browser User-Agent and headers to prevent instant YouTube anti-bot blocking
     session.headers.update(_BROWSER_HEADERS)
+    _load_cookies_into_session(session)
     ytt_api = YouTubeTranscriptApi(http_client=session)
 
     # Try multiple language combinations
@@ -139,7 +227,7 @@ def get_subtitles_via_extract_info(url: str) -> str | None:
     if not video_id:
         return None
 
-    ydl_opts = {
+    ydl_opts = _with_youtube_cookies({
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
@@ -153,7 +241,7 @@ def get_subtitles_via_extract_info(url: str) -> str | None:
         # Don't write anything to disk
         "writesubtitles": False,
         "writeautomaticsub": False,
-    }
+    })
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -291,7 +379,7 @@ def get_youtube_subtitles_ytdlp(url: str) -> str | None:
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_template = os.path.join(tmpdir, "%(id)s.%(ext)s")
-        ydl_opts = {
+        ydl_opts = _with_youtube_cookies({
             "skip_download": True,
             "writesubtitles": True,
             "writeautomaticsub": True,
@@ -307,7 +395,7 @@ def get_youtube_subtitles_ytdlp(url: str) -> str | None:
             "outtmpl": output_template,
             "quiet": True,
             "no_warnings": True,
-        }
+        })
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -347,9 +435,16 @@ def get_youtube_subtitles_ytdlp(url: str) -> str | None:
 def download_youtube_audio(url: str) -> str:
     """Download audio from YouTube using yt-dlp and convert to WAV."""
     output_path = os.path.join(DOWNLOAD_DIR, "%(title)s.%(ext)s")
-    ydl_opts = {
+    ydl_opts = _with_youtube_cookies({
         "format": "bestaudio/best",
         "outtmpl": output_path,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "web"],
+                "skip": ["dash", "hls"],
+            }
+        },
+        "http_headers": _BROWSER_HEADERS,
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",
@@ -358,7 +453,7 @@ def download_youtube_audio(url: str) -> str:
             }
         ],
         "quiet": True,
-    }
+    })
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)

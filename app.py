@@ -8,7 +8,13 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)  # MUST be before core imports
 
-from utils.audio_processor import process_input, get_youtube_transcript, get_subtitles_via_extract_info, get_youtube_subtitles_ytdlp
+from utils.audio_processor import (
+    process_input,
+    get_youtube_transcript,
+    get_subtitles_via_extract_info,
+    get_youtube_subtitles_ytdlp,
+    has_youtube_cookies,
+)
 from core.transcriber import transcribe_all
 from core.summarizer import summarize, generate_title
 from core.extractor import extract_all_insights
@@ -1238,12 +1244,12 @@ if run_btn:
                     # Captions fetched successfully — skip audio download entirely
                     update_step("audio", "done")
                     update_step("transcript", "done")
-                elif is_youtube and is_cloud:
-                    # On cloud servers, yt-dlp audio download ALWAYS fails (YouTube blocks datacenter IPs)
+                elif is_youtube and is_cloud and not has_youtube_cookies():
+                    # Render/datacenter IPs often need YouTube cookies before audio download works.
                     raise RuntimeError(
                         "Could not fetch captions for this video. "
-                        "YouTube blocked this deployed server from downloading audio. "
-                        "Upload the audio/video file or paste the transcript to analyze it here."
+                        "YouTube blocked this deployed server before audio download. "
+                        "Set YOUTUBE_COOKIES_B64 in Render, then redeploy, or upload the media file."
                     )
                 else:
                     # ── Strategy 4: Download audio → Whisper (works locally, may work on cloud with ffmpeg)
