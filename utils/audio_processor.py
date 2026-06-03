@@ -53,7 +53,15 @@ def get_youtube_transcript(url: str) -> str | None:
         print("[Strategy 1] Could not extract video ID from URL.")
         return None
 
-    ytt_api = YouTubeTranscriptApi()
+    import requests
+    session = requests.Session()
+    # Use a modern browser User-Agent and headers to prevent instant YouTube anti-bot blocking
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    })
+    ytt_api = YouTubeTranscriptApi(http_client=session)
 
     # Try multiple language combinations
     language_attempts = [
@@ -69,7 +77,7 @@ def get_youtube_transcript(url: str) -> str | None:
             full_text = " ".join(snippet.text for snippet in fetched).strip()
 
             if len(full_text) >= 20:
-                print(f"[Strategy 1] ✅ Fetched YouTube captions ({len(full_text)} chars, langs={langs})")
+                print(f"[Strategy 1] [SUCCESS] Fetched YouTube captions ({len(full_text)} chars, langs={langs})")
                 return full_text
 
         except Exception as e:
@@ -86,7 +94,7 @@ def get_youtube_transcript(url: str) -> str | None:
                     fetched = t.fetch()
                     full_text = " ".join(snippet.text for snippet in fetched).strip()
                     if len(full_text) >= 20:
-                        print(f"[Strategy 1] ✅ Fetched captions via list ({len(full_text)} chars, lang={t.language_code})")
+                        print(f"[Strategy 1] [SUCCESS] Fetched captions via list ({len(full_text)} chars, lang={t.language_code})")
                         return full_text
                 else:
                     # Try to translate non-English captions to English
@@ -95,7 +103,7 @@ def get_youtube_transcript(url: str) -> str | None:
                         fetched = translated.fetch()
                         full_text = " ".join(snippet.text for snippet in fetched).strip()
                         if len(full_text) >= 20:
-                            print(f"[Strategy 1] ✅ Fetched translated captions ({len(full_text)} chars, {t.language_code}->en)")
+                            print(f"[Strategy 1] [SUCCESS] Fetched translated captions ({len(full_text)} chars, {t.language_code}->en)")
                             return full_text
                     except Exception:
                         print(f"[Strategy 1] Translation from {t.language_code} to English not available.")
@@ -105,7 +113,7 @@ def get_youtube_transcript(url: str) -> str | None:
     except Exception as e:
         print(f"[Strategy 1] Listing transcripts also failed: {e}")
 
-    print("[Strategy 1] ❌ No usable captions found via youtube-transcript-api.")
+    print("[Strategy 1] [FAILED] No usable captions found via youtube-transcript-api.")
     return None
 
 
@@ -139,11 +147,11 @@ def get_subtitles_via_extract_info(url: str) -> str | None:
             print("[Strategy 2] Extracting video info via yt-dlp...")
             info = ydl.extract_info(url, download=False)
     except Exception as e:
-        print(f"[Strategy 2] ❌ extract_info failed: {e}")
+        print(f"[Strategy 2] [FAILED] extract_info failed: {e}")
         return None
 
     if not info:
-        print("[Strategy 2] ❌ extract_info returned empty result.")
+        print("[Strategy 2] [FAILED] extract_info returned empty result.")
         return None
 
     # Check for subtitles in the metadata
@@ -177,13 +185,13 @@ def get_subtitles_via_extract_info(url: str) -> str | None:
                             if resp.ok and len(resp.text) > 50:
                                 text = _parse_subtitle_content(resp.text, fmt_pref)
                                 if text and len(text) >= 20:
-                                    print(f"[Strategy 2] ✅ Got subtitles via extract_info ({len(text)} chars, {source_name}/{lang}/{fmt_pref})")
+                                    print(f"[Strategy 2] [SUCCESS] Got subtitles via extract_info ({len(text)} chars, {source_name}/{lang}/{fmt_pref})")
                                     return text
                         except Exception as e:
                             print(f"[Strategy 2] Failed to fetch subtitle URL: {e}")
                             continue
 
-    print("[Strategy 2] ❌ No usable subtitles found via extract_info.")
+    print("[Strategy 2] [FAILED] No usable subtitles found via extract_info.")
     return None
 
 
@@ -275,7 +283,7 @@ def get_youtube_subtitles_ytdlp(url: str) -> str | None:
                 print("[Strategy 3] Downloading subtitle files via yt-dlp...")
                 ydl.download([url])
         except Exception as e:
-            print(f"[Strategy 3] ❌ yt-dlp subtitle download failed: {e}")
+            print(f"[Strategy 3] [FAILED] yt-dlp subtitle download failed: {e}")
             return None
 
         # Look for downloaded subtitle files
@@ -286,7 +294,7 @@ def get_youtube_subtitles_ytdlp(url: str) -> str | None:
             sub_files = glob.glob(os.path.join(tmpdir, "*.json3"))
 
         if not sub_files:
-            print("[Strategy 3] ❌ yt-dlp did not produce any subtitle files.")
+            print("[Strategy 3] [FAILED] yt-dlp did not produce any subtitle files.")
             return None
 
         # Parse the first available subtitle file
@@ -295,12 +303,12 @@ def get_youtube_subtitles_ytdlp(url: str) -> str | None:
                 content = f.read()
             text = _parse_subtitle_text(content)
             if text and len(text) >= 20:
-                print(f"[Strategy 3] ✅ Got subtitles via yt-dlp file download ({len(text)} chars)")
+                print(f"[Strategy 3] [SUCCESS] Got subtitles via yt-dlp file download ({len(text)} chars)")
                 return text
         except Exception as e:
             print(f"[Strategy 3] Failed to parse subtitle file: {e}")
 
-    print("[Strategy 3] ❌ No usable subtitles from yt-dlp file download.")
+    print("[Strategy 3] [FAILED] No usable subtitles from yt-dlp file download.")
     return None
 
 
