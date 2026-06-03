@@ -27,7 +27,7 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 def extract_video_id(url: str) -> str | None:
     """Extract the YouTube video ID from various URL formats."""
     patterns = [
-        r"(?:v=|/v/|youtu\.be/|/embed/)([a-zA-Z0-9_-]{11})",
+        r"(?:v=|/v/|/shorts/|/live/|youtu\.be/|/embed/)([a-zA-Z0-9_-]{11})",
         r"^([a-zA-Z0-9_-]{11})$",
     ]
     for pat in patterns:
