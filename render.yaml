@@ -8,9 +8,5 @@ services:
     envVars:
       - key: GROQ_API_KEY
         sync: false
-      - key: SARVAM_API_KEY
-        sync: false
-      - key: YOUTUBE_COOKIES_B64
-        sync: false
       - key: PYTHON_VERSION
         value: "3.11.9"

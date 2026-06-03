@@ -6,14 +6,13 @@ import streamlit as st
 import time
 from dotenv import load_dotenv
 
-load_dotenv(override=True)  # MUST be before core imports
+load_dotenv(override=True)
 
 from utils.audio_processor import (
-    process_input,
     get_youtube_transcript,
     get_subtitles_via_extract_info,
     get_youtube_subtitles_ytdlp,
-    has_youtube_cookies,
+    process_uploaded_file,
 )
 from core.transcriber import transcribe_all
 from core.summarizer import summarize, generate_title
@@ -1072,7 +1071,7 @@ def render_loading(percent, step_icon, step_text, placeholder):
     placeholder.markdown(f"""
     <div class="loading-container">
         <div class="loading-icon">🧠</div>
-        <div class="loading-title">Analyzing Your Video</div>
+        <div class="loading-title">Analyzing Your Transcript</div>
         <div class="loading-percent">{percent}%</div>
         <div class="loading-bar-track">
             <div class="loading-bar-fill" style="width: {percent}%;"></div>
@@ -1102,26 +1101,26 @@ with st.sidebar:
     # Input Section
     st.markdown('<div class="sb-section-label">🎤 Input</div>', unsafe_allow_html=True)
     source = st.text_input(
-        "YouTube URL or local file path",
+        "YouTube URL",
         placeholder="https://youtube.com/watch?v=...",
-        help="Paste a YouTube link. Local file paths only work when you run the app on your own computer.",
+        help="Paste a YouTube link — captions will be fetched automatically.",
         label_visibility="collapsed"
     )
     uploaded_media = st.file_uploader(
         "Upload audio/video",
         type=["mp3", "mp4", "m4a", "wav", "webm", "mov", "aac", "ogg"],
         label_visibility="collapsed",
-        help="Use this when YouTube blocks the deployed server. Download the video/audio yourself, then upload it here.",
+        help="Upload an audio/video file and Groq Whisper will transcribe it.",
     )
     pasted_transcript = st.text_area(
         "Paste transcript",
         placeholder="Optional: paste captions/transcript here...",
         height=90,
         label_visibility="collapsed",
-        help="If you already have a transcript, paste it here and the app will skip YouTube/audio extraction.",
+        help="If you already have a transcript, paste it here to skip extraction.",
     )
     language = st.selectbox("Language", ["english", "hinglish"], index=0, label_visibility="collapsed")
-    
+
     st.markdown("<div style='height:0.35rem'></div>", unsafe_allow_html=True)
     run_btn = st.button("⚡  Analyse Video", use_container_width=True)
 
@@ -1167,7 +1166,7 @@ with st.sidebar:
     st.markdown("""
     <div class="sb-footer">
         <div class="sb-footer-label">Powered by</div>
-        <div class="sb-footer-tech">Groq Whisper · Llama 3.1 · LangChain</div>
+        <div class="sb-footer-tech">Groq · Llama 3.1 · LangChain</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1180,7 +1179,7 @@ st.markdown("""
     <div class="hero-icon-wrap">🎬</div>
     <h1>What video do you want<br><span class="hero-gradient-text">to understand today?</span></h1>
     <div class="hero-sub">
-        Drop a YouTube URL and AI will extract transcripts, summaries, action items, and let you chat with the content.
+        Drop a YouTube URL, upload a media file, or paste a transcript — AI will extract insights, summaries, action items, and let you chat with the content.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -1191,12 +1190,11 @@ if run_btn:
     if not source.strip() and uploaded_media is None and not pasted_transcript:
         st.error("Please enter a YouTube URL, upload a media file, or paste a transcript.")
     else:
-        # ── Validate GROQ_API_KEY before starting ────────────────────────────
         groq_key = os.getenv("GROQ_API_KEY", "").strip()
         if not groq_key or groq_key == "GROQ_API_KEY" or len(groq_key) < 10:
             st.error(
                 "🔑 **GROQ_API_KEY is missing or invalid.** "
-                "Please set your Groq API key in Render's Dashboard → Environment Variables, "
+                "Please set your Groq API key in the platform's environment/secrets, "
                 "or in the local `.env` file. Get a free key at https://console.groq.com"
             )
         else:
@@ -1212,70 +1210,69 @@ if run_btn:
 
             try:
                 source_to_process = source.strip()
-                if uploaded_media is not None and not pasted_transcript:
-                    source_to_process = save_uploaded_media(uploaded_media)
-
                 is_youtube = source_to_process.startswith("http") and ("youtu" in source_to_process)
-                is_cloud = bool(os.getenv("RENDER") or os.getenv("PORT"))
                 transcript = pasted_transcript or None
 
                 if transcript:
+                    # User pasted a transcript directly
                     render_loading(20, "📝", "Using pasted transcript", progress_placeholder)
                     update_step("audio", "done")
                     update_step("transcript", "done")
+
+                elif uploaded_media is not None:
+                    # User uploaded an audio/video file → Groq Whisper
+                    render_loading(5, "🔊", "Processing uploaded file", progress_placeholder)
+                    update_step("audio", "active")
+                    saved_path = save_uploaded_media(uploaded_media)
+                    chunks = process_uploaded_file(saved_path)
+                    update_step("audio", "done")
+
+                    render_loading(20, "📝", "Transcribing audio with Groq Whisper", progress_placeholder)
+                    update_step("transcript", "active")
+                    transcript = transcribe_all(chunks, language)
+                    update_step("transcript", "done")
+
                 elif is_youtube:
-                    # ── Strategy 1: youtube-transcript-api (fastest, direct captions)
+                    # YouTube URL → try caption strategies 1-3 (no audio download)
                     render_loading(5, "📝", "Fetching YouTube captions", progress_placeholder)
                     update_step("audio", "active")
                     update_step("transcript", "active")
                     transcript = get_youtube_transcript(source_to_process)
 
-                    # ── Strategy 2: yt-dlp extract_info → CDN subtitle fetch
                     if not transcript:
                         render_loading(12, "📝", "Extracting subtitles from video metadata", progress_placeholder)
                         transcript = get_subtitles_via_extract_info(source_to_process)
 
-                    # ── Strategy 3: yt-dlp subtitle file download
                     if not transcript:
                         render_loading(18, "📝", "Trying subtitle file download", progress_placeholder)
                         transcript = get_youtube_subtitles_ytdlp(source_to_process)
 
-                if transcript:
-                    # Captions fetched successfully — skip audio download entirely
-                    update_step("audio", "done")
-                    update_step("transcript", "done")
-                elif is_youtube and is_cloud and not has_youtube_cookies():
-                    # Render/datacenter IPs often need YouTube cookies before audio download works.
-                    raise RuntimeError(
-                        "Could not fetch captions for this video. "
-                        "YouTube blocked this deployed server before audio download. "
-                        "Set YOUTUBE_COOKIES_B64 in Render, then redeploy, or upload the media file."
-                    )
+                    if transcript:
+                        update_step("audio", "done")
+                        update_step("transcript", "done")
+                    else:
+                        raise RuntimeError(
+                            "Could not fetch captions for this video. "
+                            "This video may not have captions, or YouTube is blocking this server. "
+                            "Please upload the audio/video file or paste the transcript instead."
+                        )
                 else:
-                    # ── Strategy 4: Download audio → Whisper (works locally, may work on cloud with ffmpeg)
-                    render_loading(5, "🔊", "Downloading & extracting audio", progress_placeholder)
-                    update_step("audio", "active")
-                    chunks = process_input(source_to_process)
-                    update_step("audio", "done")
+                    st.error("Please enter a valid YouTube URL, upload a file, or paste a transcript.")
+                    st.stop()
 
-                    render_loading(20, "📝", "Transcribing audio with Whisper", progress_placeholder)
-                    update_step("transcript", "active")
-                    transcript = transcribe_all(chunks, language)
-                    update_step("transcript", "done")
-
-                # Step 3: Title generation
-                render_loading(45, "🏷️", "Generating video title", progress_placeholder)
+                # Step: Title generation
+                render_loading(40, "🏷️", "Generating title", progress_placeholder)
                 update_step("title", "active")
                 title = generate_title(transcript)
                 update_step("title", "done")
 
-                # Step 4: Summarization
+                # Step: Summarization
                 render_loading(55, "📋", "Creating intelligent summary", progress_placeholder)
                 update_step("summary", "active")
                 summary = summarize(transcript)
                 update_step("summary", "done")
 
-                # Step 5: Insight extraction — SINGLE combined call
+                # Step: Insight extraction
                 render_loading(70, "🔍", "Extracting insights & action items", progress_placeholder)
                 update_step("extract", "active")
                 insights = extract_all_insights(transcript)
@@ -1284,7 +1281,7 @@ if run_btn:
                 questions    = insights["open_questions"]
                 update_step("extract", "done")
 
-                # Step 6: RAG engine
+                # Step: RAG engine
                 render_loading(90, "🧠", "Building knowledge engine", progress_placeholder)
                 update_step("rag", "active")
                 rag_chain = build_rag_chain(transcript)
@@ -1300,14 +1297,12 @@ if run_btn:
                     "rag_chain": rag_chain,
                 }
                 st.session_state.pipeline_done = True
-                
-                # Add to history
+
                 st.session_state.analysis_history.append({
                     "title": title[:50],
                     "words": count_words(transcript),
                 })
 
-                # Show 100% briefly
                 render_loading(100, "✅", "Analysis complete!", progress_placeholder)
                 time.sleep(0.8)
                 progress_placeholder.empty()
@@ -1317,32 +1312,25 @@ if run_btn:
                 for k in ["audio","transcript","title","summary","extract","rag"]:
                     if st.session_state.pipeline_steps.get(k) == "active":
                         st.session_state.pipeline_steps[k] = "pending"
-                
+
                 error_msg = str(e)
                 if "rate_limit" in error_msg or "429" in error_msg or "tokens per minute" in error_msg.lower():
                     progress_placeholder.error(
                         "⏳ **Rate limit reached.** Please wait 1-2 minutes and try again, or try a shorter video."
                     )
-                elif "413" in error_msg or "Request too large" in error_msg or "Request Entity Too Large" in error_msg:
+                elif "413" in error_msg or "Request too large" in error_msg:
                     progress_placeholder.error(
-                        "📏 **Video too large for free tier.** Please try a shorter video (under 5 minutes)."
+                        "📏 **File too large for free tier.** Please try a shorter video (under 5 minutes)."
                     )
                 elif ("GROQ_API_KEY" in error_msg or "api_key" in error_msg.lower()) and "yt-dlp" not in error_msg.lower():
                     progress_placeholder.error(
                         "🔑 **GROQ_API_KEY is missing or invalid.** "
-                        "Set it in Render Dashboard → Environment Variables, or in the `.env` file."
-                    )
-                elif "authentication" in error_msg.lower() and "youtube" in error_msg.lower():
-                    progress_placeholder.error(
-                        "🤖 **YouTube Bot Detection Blocked the Request.**\n\n"
-                        "YouTube is blocking this server from downloading the video. "
-                        "Upload the audio/video file or paste the transcript instead."
+                        "Set it in your platform's environment/secrets, or in the `.env` file."
                     )
                 elif "Could not fetch" in error_msg or "captions" in error_msg.lower():
                     progress_placeholder.error(
                         f"📝 **Transcript Error:** {e}\n\n"
-                        "YouTube may be blocking requests from this server. "
-                        "Try a captioned video, upload the media file, or paste the transcript."
+                        "Try a video with captions enabled, upload the media file directly, or paste the transcript."
                     )
                 else:
                     progress_placeholder.error(f"❌ Error: {e}")

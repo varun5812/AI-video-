@@ -7,14 +7,15 @@ Strategy for YouTube URLs (in order):
   2. Use yt-dlp extract_info to get subtitle URLs from video metadata,
      then fetch subtitle content via requests (CDN URLs are less blocked).
   3. Fall back to yt-dlp subtitle file download (skip_download mode).
-  4. Last resort: yt-dlp audio download → Groq Whisper transcription.
 
-For local files the audio-download path is always used.
+If all caption strategies fail, user must upload the media file or paste
+the transcript manually.
+
+For uploaded files the audio is converted and chunked for Groq Whisper.
 """
 
 import os
 import re
-import base64
 import requests as _requests
 import yt_dlp
 from pydub import AudioSegment
@@ -31,92 +32,6 @@ _BROWSER_HEADERS = {
     "Accept-Language": "en-US,en;q=0.9,hi;q=0.8",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
-
-
-def _decode_cookie_env() -> str | None:
-    """Read YouTube cookies from Render env vars without ever committing them."""
-    raw_b64 = os.getenv("YOUTUBE_COOKIES_B64", "").strip()
-    raw_txt = os.getenv("YOUTUBE_COOKIES_TXT", "").strip()
-
-    if raw_b64:
-        try:
-            return base64.b64decode(raw_b64).decode("utf-8")
-        except Exception as e:
-            print(f"[YouTube cookies] Could not decode YOUTUBE_COOKIES_B64: {e}")
-            return None
-
-    if raw_txt.startswith("base64:"):
-        try:
-            return base64.b64decode(raw_txt.removeprefix("base64:")).decode("utf-8")
-        except Exception as e:
-            print(f"[YouTube cookies] Could not decode base64 YOUTUBE_COOKIES_TXT: {e}")
-            return None
-
-    if raw_txt:
-        return raw_txt.replace("\\n", "\n")
-
-    return None
-
-
-def get_youtube_cookiefile() -> str | None:
-    """
-    Return a Netscape cookies.txt path for yt-dlp.
-
-    On Render, set YOUTUBE_COOKIES_B64 to a base64-encoded cookies.txt export.
-    A direct YOUTUBE_COOKIES_FILE path also works for local/deployed filesystems.
-    """
-    existing = os.getenv("YOUTUBE_COOKIES_FILE", "").strip()
-    if existing and os.path.exists(existing):
-        return existing
-
-    cookie_text = _decode_cookie_env()
-    if not cookie_text:
-        return None
-
-    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-    cookie_path = os.path.join(DOWNLOAD_DIR, "youtube_cookies.txt")
-    try:
-        with open(cookie_path, "w", encoding="utf-8", newline="\n") as f:
-            f.write(cookie_text.strip() + "\n")
-        return cookie_path
-    except Exception as e:
-        print(f"[YouTube cookies] Could not write cookies file: {e}")
-        return None
-
-
-def has_youtube_cookies() -> bool:
-    return bool(get_youtube_cookiefile())
-
-
-def _with_youtube_cookies(ydl_opts: dict) -> dict:
-    cookiefile = get_youtube_cookiefile()
-    if cookiefile:
-        ydl_opts = dict(ydl_opts)
-        ydl_opts["cookiefile"] = cookiefile
-        print("[YouTube cookies] Using cookiefile for yt-dlp.")
-    return ydl_opts
-
-
-def _load_cookies_into_session(session) -> None:
-    """Load Netscape cookies into a requests session for caption API attempts."""
-    cookiefile = get_youtube_cookiefile()
-    if not cookiefile:
-        return
-
-    try:
-        with open(cookiefile, "r", encoding="utf-8", errors="ignore") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                parts = line.split("\t")
-                if len(parts) < 7:
-                    continue
-                domain, _, path, _, _, name, value = parts[:7]
-                session.cookies.set(name, value, domain=domain, path=path)
-        print("[YouTube cookies] Loaded cookies for caption requests.")
-    except Exception as e:
-        print(f"[YouTube cookies] Could not load cookies into session: {e}")
 
 
 # ── YouTube transcript (captions) ─────────────────────────────────────────────
@@ -152,9 +67,7 @@ def get_youtube_transcript(url: str) -> str | None:
 
     import requests
     session = requests.Session()
-    # Use a modern browser User-Agent and headers to prevent instant YouTube anti-bot blocking
     session.headers.update(_BROWSER_HEADERS)
-    _load_cookies_into_session(session)
     ytt_api = YouTubeTranscriptApi(http_client=session)
 
     # Try multiple language combinations
@@ -183,7 +96,6 @@ def get_youtube_transcript(url: str) -> str | None:
         transcript_list = ytt_api.list(video_id)
         for t in transcript_list:
             try:
-                # If it's already English-ish, fetch directly
                 if t.language_code.startswith("en"):
                     fetched = t.fetch()
                     full_text = " ".join(snippet.text for snippet in fetched).strip()
@@ -191,7 +103,6 @@ def get_youtube_transcript(url: str) -> str | None:
                         print(f"[Strategy 1] [SUCCESS] Fetched captions via list ({len(full_text)} chars, lang={t.language_code})")
                         return full_text
                 else:
-                    # Try to translate non-English captions to English
                     try:
                         translated = t.translate("en")
                         fetched = translated.fetch()
@@ -217,17 +128,12 @@ def get_subtitles_via_extract_info(url: str) -> str | None:
     """
     Strategy 2: use yt-dlp's extract_info(download=False) to get subtitle URLs
     from video metadata, then fetch the subtitle content via requests.
-
-    This works differently from direct caption APIs because:
-    - extract_info uses YouTube's innertube API (internal client API)
-    - Subtitle content is served from YouTube's CDN, which is less blocked
-    - No actual download occurs — just metadata extraction + URL fetch
     """
     video_id = extract_video_id(url)
     if not video_id:
         return None
 
-    ydl_opts = _with_youtube_cookies({
+    ydl_opts = {
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
@@ -238,10 +144,9 @@ def get_subtitles_via_extract_info(url: str) -> str | None:
             }
         },
         "http_headers": _BROWSER_HEADERS,
-        # Don't write anything to disk
         "writesubtitles": False,
         "writeautomaticsub": False,
-    })
+    }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -255,7 +160,6 @@ def get_subtitles_via_extract_info(url: str) -> str | None:
         print("[Strategy 2] [FAILED] extract_info returned empty result.")
         return None
 
-    # Check for subtitles in the metadata
     manual_subs = info.get("subtitles", {}) or {}
     auto_subs = info.get("automatic_captions", {}) or {}
 
@@ -265,7 +169,6 @@ def get_subtitles_via_extract_info(url: str) -> str | None:
     preferred_langs = ["en", "en-US", "en-GB", "en-IN", "en-orig", "hi"]
     preferred_formats = ["json3", "vtt", "srv3", "srt", "ttml"]
 
-    # Try manual subs first, then auto-generated
     for subs_source, source_name in [(manual_subs, "manual"), (auto_subs, "auto")]:
         langs = preferred_langs + [lang for lang in subs_source.keys() if lang not in preferred_langs]
         for lang in langs:
@@ -315,31 +218,19 @@ def _parse_subtitle_content(content: str, fmt: str) -> str:
                     if text and text != "\n":
                         lines.append(text)
             result = " ".join(lines).strip()
-            # Clean up extra whitespace
             result = re.sub(r"\s+", " ", result)
             return result
         except Exception:
             pass
 
-    # For vtt/srt/srv3 — use the file parser
     return _parse_subtitle_text(content)
 
 
 def _parse_subtitle_text(content: str) -> str:
-    """
-    Parse VTT or SRT subtitle text and extract plain text.
-    Removes timestamps, formatting tags, and duplicate lines.
-    """
-    # Remove VTT header
+    """Parse VTT or SRT subtitle text and extract plain text."""
     content = re.sub(r"^WEBVTT.*?\n\n", "", content, flags=re.DOTALL)
-
-    # Remove timestamp lines (e.g., "00:00:01.000 --> 00:00:04.000")
     content = re.sub(r"\d{2}:\d{2}:\d{2}[.,]\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}[.,]\d{3}.*?\n", "", content)
-
-    # Remove SRT sequence numbers (lines that are just digits)
     content = re.sub(r"^\d+\s*$", "", content, flags=re.MULTILINE)
-
-    # Remove HTML-like tags (<c>, </c>, <b>, etc.)
     content = re.sub(r"<[^>]+>", "", content)
 
     content = (
@@ -350,10 +241,8 @@ def _parse_subtitle_text(content: str) -> str:
         .replace("&#39;", "'")
     )
 
-    # Remove position/alignment tags
     content = re.sub(r"align:.*?position:.*?\n", "", content)
 
-    # Deduplicate consecutive identical lines (common in VTT auto-captions)
     lines = [line.strip() for line in content.split("\n") if line.strip()]
     deduplicated = []
     for line in lines:
@@ -379,7 +268,7 @@ def get_youtube_subtitles_ytdlp(url: str) -> str | None:
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_template = os.path.join(tmpdir, "%(id)s.%(ext)s")
-        ydl_opts = _with_youtube_cookies({
+        ydl_opts = {
             "skip_download": True,
             "writesubtitles": True,
             "writeautomaticsub": True,
@@ -395,7 +284,7 @@ def get_youtube_subtitles_ytdlp(url: str) -> str | None:
             "outtmpl": output_template,
             "quiet": True,
             "no_warnings": True,
-        })
+        }
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -405,7 +294,6 @@ def get_youtube_subtitles_ytdlp(url: str) -> str | None:
             print(f"[Strategy 3] [FAILED] yt-dlp subtitle download failed: {e}")
             return None
 
-        # Look for downloaded subtitle files, preferring formats that parse cleanly.
         sub_files = []
         for pattern in ("*.json3", "*.vtt", "*.srv3", "*.srt"):
             sub_files.extend(glob.glob(os.path.join(tmpdir, pattern)))
@@ -414,7 +302,6 @@ def get_youtube_subtitles_ytdlp(url: str) -> str | None:
             print("[Strategy 3] [FAILED] yt-dlp did not produce any subtitle files.")
             return None
 
-        # Parse the first available subtitle file
         try:
             with open(sub_files[0], "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
@@ -430,37 +317,7 @@ def get_youtube_subtitles_ytdlp(url: str) -> str | None:
     return None
 
 
-# ── Audio download (yt-dlp) — last resort ─────────────────────────────────────
-
-def download_youtube_audio(url: str) -> str:
-    """Download audio from YouTube using yt-dlp and convert to WAV."""
-    output_path = os.path.join(DOWNLOAD_DIR, "%(title)s.%(ext)s")
-    ydl_opts = _with_youtube_cookies({
-        "format": "bestaudio/best",
-        "outtmpl": output_path,
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["android", "web"],
-                "skip": ["dash", "hls"],
-            }
-        },
-        "http_headers": _BROWSER_HEADERS,
-        "postprocessors": [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "wav",
-                "preferredquality": "192",
-            }
-        ],
-        "quiet": True,
-    })
-
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        base_filename = ydl.prepare_filename(info)
-        filename = os.path.splitext(base_filename)[0] + ".wav"
-    return filename
-
+# ── Local file audio processing ───────────────────────────────────────────────
 
 def convert_to_wav(input_path: str) -> str:
     """Convert any audio/video file to WAV format using pydub."""
@@ -487,18 +344,13 @@ def chunk_audio(wav_path: str, chunk_minutes: int = 5) -> list:
     return chunks
 
 
-def process_input(source: str) -> list:
+def process_uploaded_file(file_path: str) -> list:
     """
-    Process a YouTube URL or local file path.
-    Returns a list of WAV chunk file paths for transcription.
+    Process an uploaded audio/video file.
+    Returns a list of WAV chunk file paths for Groq Whisper transcription.
     """
-    if source.startswith("http://") or source.startswith("https://"):
-        print("Detected YouTube URL. Downloading audio...")
-        wav_path = download_youtube_audio(source)
-    else:
-        print("Detected local file. Converting to WAV...")
-        wav_path = convert_to_wav(source)
-
+    print("Converting uploaded file to WAV...")
+    wav_path = convert_to_wav(file_path)
     print("Chunking audio...")
     chunks = chunk_audio(wav_path)
     print(f"Audio ready — {len(chunks)} chunk(s) created.")
