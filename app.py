@@ -1120,16 +1120,14 @@ with st.sidebar:
             help="Paste a YouTube link — captions will be fetched automatically.",
         )
         
-        st.markdown("<div style='text-align: center; margin: 0.2rem 0; color: #94a3b8; font-size: 0.75rem; font-weight: 600;'>— OR —</div>", unsafe_allow_html=True)
-        
+    with st.container(border=True):
         uploaded_media = st.file_uploader(
             "📁 Upload File",
             type=["mp3", "mp4", "m4a", "wav", "webm", "mov", "aac", "ogg"],
             help="Upload an audio/video file and Groq Whisper will transcribe it.",
         )
         
-        st.markdown("<div style='text-align: center; margin: 0.2rem 0; color: #94a3b8; font-size: 0.75rem; font-weight: 600;'>— OR —</div>", unsafe_allow_html=True)
-        
+    with st.container(border=True):
         pasted_transcript = st.text_area(
             "📝 Paste Transcript",
             placeholder="Directly paste captions here...",
