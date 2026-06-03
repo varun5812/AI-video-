@@ -1385,8 +1385,8 @@ if st.session_state.result:
     </div>
     """, unsafe_allow_html=True)
 
-    # Summary + Transcript
-    col1, col2 = st.columns([3, 2], gap="medium")
+    # Summary + Chat
+    col1, col2 = st.columns([1.1, 1], gap="large")
 
     with col1:
         st.markdown(f"""
@@ -1399,68 +1399,69 @@ if st.session_state.result:
         </div>
         """, unsafe_allow_html=True)
 
-    with col2:
+        st.markdown("<div style='height: 1rem;'></div>", unsafe_allow_html=True)
         with st.expander("📝 Full Transcript", expanded=False):
             st.markdown(f'<div class="transcript-box">{r["transcript"]}</div>', unsafe_allow_html=True)
 
-    # ─── Chat (MOVED ABOVE Insights) ────────────────────────────────────────────
-    st.markdown("""
-    <div class="sec-head">
-        <span class="sec-title">💬 Chat with Your Meeting</span>
-        <div class="sec-line"></div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    if st.session_state.chat_history:
-        chat_html = '<div class="chat-area">'
-        for msg in st.session_state.chat_history:
-            if msg["role"] == "user":
-                chat_html += f"""
-                <div class="chat-msg">
-                    <div class="chat-avatar user">👤</div>
-                    <div class="chat-content">
-                        <div class="chat-name user">You</div>
-                        <div class="chat-text user">{msg['content']}</div>
-                    </div>
-                </div>"""
-            else:
-                chat_html += f"""
-                <div class="chat-msg">
-                    <div class="chat-avatar bot">🤖</div>
-                    <div class="chat-content">
-                        <div class="chat-name bot">VideoAI</div>
-                        <div class="chat-text bot">{msg['content']}</div>
-                    </div>
-                </div>"""
-        chat_html += '</div>'
-        st.markdown(chat_html, unsafe_allow_html=True)
-    else:
+    with col2:
+        # ─── Chat ────────────────────────────────────────────
         st.markdown("""
-        <div class="g-card chat-empty">
-            <div class="chat-empty-icon">💬</div>
-            <div class="chat-empty-text">
-                Ask anything about your meeting — decisions, action items, or specific topics.
-            </div>
+        <div class="sec-head" style="margin-top: 0;">
+            <span class="sec-title">💬 Chat with Your Meeting</span>
+            <div class="sec-line"></div>
         </div>
         """, unsafe_allow_html=True)
 
-    cc1, cc2 = st.columns([5, 1], gap="small")
-    with cc1:
-        user_input = st.text_input("Ask", placeholder="What were the main takeaways?", label_visibility="collapsed")
-    with cc2:
-        send_btn = st.button("Send →", use_container_width=True)
+        if st.session_state.chat_history:
+            chat_html = '<div class="chat-area" style="max-height: 450px;">'
+            for msg in st.session_state.chat_history:
+                if msg["role"] == "user":
+                    chat_html += f"""
+                    <div class="chat-msg">
+                        <div class="chat-avatar user">👤</div>
+                        <div class="chat-content">
+                            <div class="chat-name user">You</div>
+                            <div class="chat-text user">{msg['content']}</div>
+                        </div>
+                    </div>"""
+                else:
+                    chat_html += f"""
+                    <div class="chat-msg">
+                        <div class="chat-avatar bot">🤖</div>
+                        <div class="chat-content">
+                            <div class="chat-name bot">VideoAI</div>
+                            <div class="chat-text bot">{msg['content']}</div>
+                        </div>
+                    </div>"""
+            chat_html += '</div>'
+            st.markdown(chat_html, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div class="g-card chat-empty" style="margin-bottom: 1rem;">
+                <div class="chat-empty-icon">💬</div>
+                <div class="chat-empty-text">
+                    Ask anything about your meeting — decisions, action items, or specific topics.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
-    if send_btn and user_input.strip():
-        with st.spinner("🤔 Thinking…"):
-            answer = ask_question(r["rag_chain"], user_input.strip())
-        st.session_state.chat_history.append({"role": "user", "content": user_input.strip()})
-        st.session_state.chat_history.append({"role": "assistant", "content": answer})
-        st.rerun()
+        cc1, cc2 = st.columns([4, 1], gap="small")
+        with cc1:
+            user_input = st.text_input("Ask", placeholder="What were the main takeaways?", label_visibility="collapsed")
+        with cc2:
+            send_btn = st.button("Send →", use_container_width=True)
 
-    if st.session_state.chat_history:
-        if st.button("🗑️  Clear Chat", type="secondary"):
-            st.session_state.chat_history = []
+        if send_btn and user_input.strip():
+            with st.spinner("🤔 Thinking…"):
+                answer = ask_question(r["rag_chain"], user_input.strip())
+            st.session_state.chat_history.append({"role": "user", "content": user_input.strip()})
+            st.session_state.chat_history.append({"role": "assistant", "content": answer})
             st.rerun()
+
+        if st.session_state.chat_history:
+            if st.button("🗑️  Clear Chat", type="secondary"):
+                st.session_state.chat_history = []
+                st.rerun()
 
     # ─── Insights (MOVED BELOW Chat) ────────────────────────────────────────────
     st.markdown("""
