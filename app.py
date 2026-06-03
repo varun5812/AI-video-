@@ -1181,6 +1181,7 @@ if run_btn:
 
             try:
                 is_youtube = source.strip().startswith("http") and ("youtu" in source)
+                is_cloud = bool(os.getenv("RENDER") or os.getenv("PORT"))
                 transcript = None
 
                 if is_youtube:
@@ -1204,6 +1205,13 @@ if run_btn:
                     # Captions fetched successfully — skip audio download entirely
                     update_step("audio", "done")
                     update_step("transcript", "done")
+                elif is_youtube and is_cloud:
+                    # On cloud servers, yt-dlp audio download ALWAYS fails (YouTube blocks datacenter IPs)
+                    raise RuntimeError(
+                        "Could not fetch captions for this video. "
+                        "YouTube has blocked audio downloads from this cloud server. "
+                        "Please try a different video that has captions, or run the app locally."
+                    )
                 else:
                     # ── Strategy 4: Download audio → Whisper (works locally, may work on cloud with ffmpeg)
                     render_loading(5, "🔊", "Downloading & extracting audio", progress_placeholder)
@@ -1280,10 +1288,16 @@ if run_btn:
                     progress_placeholder.error(
                         "📏 **Video too large for free tier.** Please try a shorter video (under 5 minutes)."
                     )
-                elif "GROQ_API_KEY" in error_msg or "api_key" in error_msg.lower() or "authentication" in error_msg.lower():
+                elif ("GROQ_API_KEY" in error_msg or "api_key" in error_msg.lower()) and "yt-dlp" not in error_msg.lower():
                     progress_placeholder.error(
                         "🔑 **GROQ_API_KEY is missing or invalid.** "
                         "Set it in Render Dashboard → Environment Variables, or in the `.env` file."
+                    )
+                elif "authentication" in error_msg.lower() and "youtube" in error_msg.lower():
+                    progress_placeholder.error(
+                        "🤖 **YouTube Bot Detection Blocked the Request.**\n\n"
+                        "YouTube is blocking this server from downloading the video. "
+                        "Try a video with captions enabled, or run the app locally."
                     )
                 elif "Could not fetch" in error_msg or "captions" in error_msg.lower():
                     progress_placeholder.error(
