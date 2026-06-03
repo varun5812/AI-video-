@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)  # MUST be before core imports
 
-from utils.audio_processor import process_input, get_youtube_transcript
+from utils.audio_processor import process_input, get_youtube_transcript, get_youtube_subtitles_ytdlp
 from core.transcriber import transcribe_all
 from core.summarizer import summarize, generate_title
 from core.extractor import extract_all_insights
@@ -1175,27 +1175,32 @@ if run_btn:
             is_cloud = bool(os.getenv("RENDER") or os.getenv("PORT"))
             transcript = None
 
-            # ── Strategy 1: YouTube captions (fast, no download, no bot detection)
+            # ── Strategy 1: YouTube captions via youtube-transcript-api (fastest)
             if is_youtube:
                 render_loading(5, "📝", "Fetching YouTube captions", progress_placeholder)
                 update_step("audio", "active")
                 update_step("transcript", "active")
                 transcript = get_youtube_transcript(source)
 
+            # ── Strategy 2: yt-dlp subtitle extraction (no audio download)
+            if not transcript and is_youtube:
+                render_loading(12, "📝", "Trying subtitle extraction", progress_placeholder)
+                transcript = get_youtube_subtitles_ytdlp(source)
+
             if transcript:
                 # Captions fetched successfully — skip audio download entirely
                 update_step("audio", "done")
                 update_step("transcript", "done")
             elif is_youtube and is_cloud:
-                # On cloud servers, yt-dlp ALWAYS fails (YouTube blocks datacenter IPs)
-                # So don't even try — show a clear error instead
+                # Both caption methods failed on cloud — show a clear error
                 raise RuntimeError(
                     "Could not fetch captions for this video. "
-                    "This video may not have subtitles/captions enabled on YouTube. "
+                    "This video may not have subtitles/captions enabled on YouTube, "
+                    "or YouTube is blocking requests from the server. "
                     "Please try a different video that has captions, or run the app locally."
                 )
             else:
-                # ── Strategy 2: Download audio → Whisper (localhost only, or local files)
+                # ── Strategy 3: Download audio → Whisper (localhost only, or local files)
                 render_loading(5, "🔊", "Downloading & extracting audio", progress_placeholder)
                 update_step("audio", "active")
                 chunks = process_input(source)

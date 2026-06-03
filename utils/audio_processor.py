@@ -107,6 +107,102 @@ def get_youtube_transcript(url: str) -> str | None:
     return None
 
 
+# ── yt-dlp subtitle extraction (fallback for cloud) ───────────────────────────
+
+def get_youtube_subtitles_ytdlp(url: str) -> str | None:
+    """
+    Fallback: use yt-dlp to extract subtitles WITHOUT downloading the video.
+    This uses --skip-download + --write-sub/--write-auto-sub which is lighter
+    than a full audio download and may succeed where youtube-transcript-api fails.
+    Returns the transcript text, or None on failure.
+    """
+    import tempfile
+    import glob
+
+    video_id = extract_video_id(url)
+    if not video_id:
+        return None
+
+    # Use a temp dir so we don't pollute the project
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_template = os.path.join(tmpdir, "%(id)s.%(ext)s")
+        ydl_opts = {
+            "skip_download": True,
+            "writesubtitles": True,
+            "writeautomaticsub": True,
+            "subtitleslangs": ["en", "en-US", "en-GB", "en-IN", "hi"],
+            "subtitlesformat": "vtt",
+            "outtmpl": output_template,
+            "quiet": True,
+            "no_warnings": True,
+        }
+
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+        except Exception as e:
+            print(f"yt-dlp subtitle extraction failed: {e}")
+            return None
+
+        # Look for any downloaded subtitle files
+        sub_files = glob.glob(os.path.join(tmpdir, "*.vtt"))
+        if not sub_files:
+            # Also check for .srt or any other subtitle format
+            sub_files = glob.glob(os.path.join(tmpdir, "*.srt"))
+        if not sub_files:
+            sub_files = glob.glob(os.path.join(tmpdir, "*.json3"))
+
+        if not sub_files:
+            print("yt-dlp did not produce any subtitle files.")
+            return None
+
+        # Parse the first available subtitle file
+        try:
+            text = _parse_subtitle_file(sub_files[0])
+            if text and len(text) >= 20:
+                print(f"Fetched subtitles via yt-dlp ({len(text)} chars)")
+                return text
+        except Exception as e:
+            print(f"Failed to parse subtitle file: {e}")
+
+    return None
+
+
+def _parse_subtitle_file(filepath: str) -> str:
+    """
+    Parse a VTT or SRT subtitle file and extract plain text.
+    Removes timestamps, formatting tags, and duplicate lines.
+    """
+    import re as _re
+
+    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+        content = f.read()
+
+    # Remove VTT header
+    content = _re.sub(r"^WEBVTT.*?\n\n", "", content, flags=_re.DOTALL)
+
+    # Remove timestamp lines (e.g., "00:00:01.000 --> 00:00:04.000")
+    content = _re.sub(r"\d{2}:\d{2}:\d{2}[.,]\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}[.,]\d{3}.*?\n", "", content)
+
+    # Remove SRT sequence numbers (lines that are just digits)
+    content = _re.sub(r"^\d+\s*$", "", content, flags=_re.MULTILINE)
+
+    # Remove HTML-like tags (<c>, </c>, <b>, etc.)
+    content = _re.sub(r"<[^>]+>", "", content)
+
+    # Remove position/alignment tags
+    content = _re.sub(r"align:.*?position:.*?\n", "", content)
+
+    # Deduplicate consecutive identical lines (common in VTT auto-captions)
+    lines = [line.strip() for line in content.split("\n") if line.strip()]
+    deduplicated = []
+    for line in lines:
+        if not deduplicated or line != deduplicated[-1]:
+            deduplicated.append(line)
+
+    return " ".join(deduplicated).strip()
+
+
 # ── Audio download (yt-dlp) — fallback ────────────────────────────────────────
 
 def download_youtube_audio(url: str) -> str:
