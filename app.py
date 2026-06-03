@@ -1,4 +1,6 @@
 import os
+import re
+import tempfile
 
 import streamlit as st
 import time
@@ -1050,6 +1052,15 @@ for key, default in {
 def count_words(text: str) -> int:
     return len(text.split()) if text else 0
 
+def save_uploaded_media(uploaded_file) -> str:
+    """Persist an uploaded media file temporarily so pydub/ffmpeg can read it."""
+    os.makedirs("downloads", exist_ok=True)
+    _, ext = os.path.splitext(uploaded_file.name or "")
+    safe_ext = re.sub(r"[^a-zA-Z0-9.]", "", ext) or ".mp4"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=safe_ext, dir="downloads") as tmp:
+        tmp.write(uploaded_file.getbuffer())
+        return tmp.name
+
 def render_loading(percent, step_icon, step_text, placeholder):
     """Render a smooth animated loading bar with percentage and step label."""
     placeholder.markdown(f"""
@@ -1085,10 +1096,23 @@ with st.sidebar:
     # Input Section
     st.markdown('<div class="sb-section-label">🎤 Input</div>', unsafe_allow_html=True)
     source = st.text_input(
-        "YouTube URL or File Path",
+        "YouTube URL or local file path",
         placeholder="https://youtube.com/watch?v=...",
-        help="Paste a YouTube link or enter a local file path",
+        help="Paste a YouTube link. Local file paths only work when you run the app on your own computer.",
         label_visibility="collapsed"
+    )
+    uploaded_media = st.file_uploader(
+        "Upload audio/video",
+        type=["mp3", "mp4", "m4a", "wav", "webm", "mov", "aac", "ogg"],
+        label_visibility="collapsed",
+        help="Use this when YouTube blocks the deployed server. Download the video/audio yourself, then upload it here.",
+    )
+    pasted_transcript = st.text_area(
+        "Paste transcript",
+        placeholder="Optional: paste captions/transcript here...",
+        height=90,
+        label_visibility="collapsed",
+        help="If you already have a transcript, paste it here and the app will skip YouTube/audio extraction.",
     )
     language = st.selectbox("Language", ["english", "hinglish"], index=0, label_visibility="collapsed")
     
@@ -1157,8 +1181,9 @@ st.markdown("""
 
 # ─── Pipeline ───────────────────────────────────────────────────────────────────
 if run_btn:
-    if not source.strip():
-        st.error("⚠️ Please enter a YouTube URL or file path.")
+    pasted_transcript = (pasted_transcript or "").strip()
+    if not source.strip() and uploaded_media is None and not pasted_transcript:
+        st.error("Please enter a YouTube URL, upload a media file, or paste a transcript.")
     else:
         # ── Validate GROQ_API_KEY before starting ────────────────────────────
         groq_key = os.getenv("GROQ_API_KEY", "").strip()
@@ -1180,26 +1205,34 @@ if run_btn:
                 st.session_state.pipeline_steps[key] = state
 
             try:
-                is_youtube = source.strip().startswith("http") and ("youtu" in source)
-                is_cloud = bool(os.getenv("RENDER") or os.getenv("PORT"))
-                transcript = None
+                source_to_process = source.strip()
+                if uploaded_media is not None and not pasted_transcript:
+                    source_to_process = save_uploaded_media(uploaded_media)
 
-                if is_youtube:
+                is_youtube = source_to_process.startswith("http") and ("youtu" in source_to_process)
+                is_cloud = bool(os.getenv("RENDER") or os.getenv("PORT"))
+                transcript = pasted_transcript or None
+
+                if transcript:
+                    render_loading(20, "📝", "Using pasted transcript", progress_placeholder)
+                    update_step("audio", "done")
+                    update_step("transcript", "done")
+                elif is_youtube:
                     # ── Strategy 1: youtube-transcript-api (fastest, direct captions)
                     render_loading(5, "📝", "Fetching YouTube captions", progress_placeholder)
                     update_step("audio", "active")
                     update_step("transcript", "active")
-                    transcript = get_youtube_transcript(source)
+                    transcript = get_youtube_transcript(source_to_process)
 
                     # ── Strategy 2: yt-dlp extract_info → CDN subtitle fetch
                     if not transcript:
                         render_loading(12, "📝", "Extracting subtitles from video metadata", progress_placeholder)
-                        transcript = get_subtitles_via_extract_info(source)
+                        transcript = get_subtitles_via_extract_info(source_to_process)
 
                     # ── Strategy 3: yt-dlp subtitle file download
                     if not transcript:
                         render_loading(18, "📝", "Trying subtitle file download", progress_placeholder)
-                        transcript = get_youtube_subtitles_ytdlp(source)
+                        transcript = get_youtube_subtitles_ytdlp(source_to_process)
 
                 if transcript:
                     # Captions fetched successfully — skip audio download entirely
@@ -1209,14 +1242,14 @@ if run_btn:
                     # On cloud servers, yt-dlp audio download ALWAYS fails (YouTube blocks datacenter IPs)
                     raise RuntimeError(
                         "Could not fetch captions for this video. "
-                        "YouTube has blocked audio downloads from this cloud server. "
-                        "Please try a different video that has captions, or run the app locally."
+                        "YouTube blocked this deployed server from downloading audio. "
+                        "Upload the audio/video file or paste the transcript to analyze it here."
                     )
                 else:
                     # ── Strategy 4: Download audio → Whisper (works locally, may work on cloud with ffmpeg)
                     render_loading(5, "🔊", "Downloading & extracting audio", progress_placeholder)
                     update_step("audio", "active")
-                    chunks = process_input(source)
+                    chunks = process_input(source_to_process)
                     update_step("audio", "done")
 
                     render_loading(20, "📝", "Transcribing audio with Whisper", progress_placeholder)
@@ -1297,13 +1330,13 @@ if run_btn:
                     progress_placeholder.error(
                         "🤖 **YouTube Bot Detection Blocked the Request.**\n\n"
                         "YouTube is blocking this server from downloading the video. "
-                        "Try a video with captions enabled, or run the app locally."
+                        "Upload the audio/video file or paste the transcript instead."
                     )
                 elif "Could not fetch" in error_msg or "captions" in error_msg.lower():
                     progress_placeholder.error(
                         f"📝 **Transcript Error:** {e}\n\n"
                         "YouTube may be blocking requests from this server. "
-                        "Try a different video or run locally."
+                        "Try a captioned video, upload the media file, or paste the transcript."
                     )
                 else:
                     progress_placeholder.error(f"❌ Error: {e}")

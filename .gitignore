@@ -4,5 +4,6 @@ __pycache__/
 *.pyo
 vector_db/
 downloades/
+downloads/
 *.wav
 .streamlit/secrets.toml

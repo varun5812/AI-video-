@@ -21,6 +21,16 @@ from pydub import AudioSegment
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
+_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9,hi;q=0.8",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
+
 
 # ── YouTube transcript (captions) ─────────────────────────────────────────────
 
@@ -56,11 +66,7 @@ def get_youtube_transcript(url: str) -> str | None:
     import requests
     session = requests.Session()
     # Use a modern browser User-Agent and headers to prevent instant YouTube anti-bot blocking
-    session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-    })
+    session.headers.update(_BROWSER_HEADERS)
     ytt_api = YouTubeTranscriptApi(http_client=session)
 
     # Try multiple language combinations
@@ -137,6 +143,13 @@ def get_subtitles_via_extract_info(url: str) -> str | None:
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "web"],
+                "skip": ["dash", "hls"],
+            }
+        },
+        "http_headers": _BROWSER_HEADERS,
         # Don't write anything to disk
         "writesubtitles": False,
         "writeautomaticsub": False,
@@ -161,35 +174,38 @@ def get_subtitles_via_extract_info(url: str) -> str | None:
     print(f"[Strategy 2] Found manual subtitle langs: {list(manual_subs.keys())[:5]}")
     print(f"[Strategy 2] Found auto-caption langs: {list(auto_subs.keys())[:5]}")
 
-    # Preferred languages in order
     preferred_langs = ["en", "en-US", "en-GB", "en-IN", "en-orig", "hi"]
-    # Preferred formats in order (json3 is easiest to parse, then vtt, then srv3)
-    preferred_formats = ["json3", "vtt", "srv3", "srt"]
+    preferred_formats = ["json3", "vtt", "srv3", "srt", "ttml"]
 
     # Try manual subs first, then auto-generated
     for subs_source, source_name in [(manual_subs, "manual"), (auto_subs, "auto")]:
-        for lang in preferred_langs:
+        langs = preferred_langs + [lang for lang in subs_source.keys() if lang not in preferred_langs]
+        for lang in langs:
             if lang not in subs_source:
                 continue
 
             formats = subs_source[lang]
+            ordered_formats = []
             for fmt_pref in preferred_formats:
-                for fmt_entry in formats:
-                    if fmt_entry.get("ext") == fmt_pref and fmt_entry.get("url"):
-                        sub_url = fmt_entry["url"]
-                        try:
-                            print(f"[Strategy 2] Fetching {source_name} subtitles ({lang}/{fmt_pref}) from CDN...")
-                            resp = _requests.get(sub_url, timeout=15, headers={
-                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                            })
-                            if resp.ok and len(resp.text) > 50:
-                                text = _parse_subtitle_content(resp.text, fmt_pref)
-                                if text and len(text) >= 20:
-                                    print(f"[Strategy 2] [SUCCESS] Got subtitles via extract_info ({len(text)} chars, {source_name}/{lang}/{fmt_pref})")
-                                    return text
-                        except Exception as e:
-                            print(f"[Strategy 2] Failed to fetch subtitle URL: {e}")
-                            continue
+                ordered_formats.extend([fmt for fmt in formats if fmt.get("ext") == fmt_pref])
+            ordered_formats.extend([fmt for fmt in formats if fmt not in ordered_formats])
+
+            for fmt_entry in ordered_formats:
+                sub_url = fmt_entry.get("url")
+                fmt_ext = fmt_entry.get("ext", "vtt")
+                if not sub_url:
+                    continue
+                try:
+                    print(f"[Strategy 2] Fetching {source_name} subtitles ({lang}/{fmt_ext}) from CDN...")
+                    resp = _requests.get(sub_url, timeout=20, headers=_BROWSER_HEADERS)
+                    if resp.ok and len(resp.text) > 50:
+                        text = _parse_subtitle_content(resp.text, fmt_ext)
+                        if text and len(text) >= 20:
+                            print(f"[Strategy 2] [SUCCESS] Got subtitles via extract_info ({len(text)} chars, {source_name}/{lang}/{fmt_ext})")
+                            return text
+                except Exception as e:
+                    print(f"[Strategy 2] Failed to fetch subtitle URL: {e}")
+                    continue
 
     print("[Strategy 2] [FAILED] No usable subtitles found via extract_info.")
     return None
@@ -238,6 +254,14 @@ def _parse_subtitle_text(content: str) -> str:
     # Remove HTML-like tags (<c>, </c>, <b>, etc.)
     content = re.sub(r"<[^>]+>", "", content)
 
+    content = (
+        content.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", '"')
+        .replace("&#39;", "'")
+    )
+
     # Remove position/alignment tags
     content = re.sub(r"align:.*?position:.*?\n", "", content)
 
@@ -271,8 +295,15 @@ def get_youtube_subtitles_ytdlp(url: str) -> str | None:
             "skip_download": True,
             "writesubtitles": True,
             "writeautomaticsub": True,
-            "subtitleslangs": ["en", "en-US", "en-GB", "en-IN", "hi"],
-            "subtitlesformat": "vtt",
+            "subtitleslangs": ["en", "en-US", "en-GB", "en-IN", "hi", "all"],
+            "subtitlesformat": "json3/vtt/srv3/srt",
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "web"],
+                    "skip": ["dash", "hls"],
+                }
+            },
+            "http_headers": _BROWSER_HEADERS,
             "outtmpl": output_template,
             "quiet": True,
             "no_warnings": True,
@@ -286,12 +317,10 @@ def get_youtube_subtitles_ytdlp(url: str) -> str | None:
             print(f"[Strategy 3] [FAILED] yt-dlp subtitle download failed: {e}")
             return None
 
-        # Look for downloaded subtitle files
-        sub_files = glob.glob(os.path.join(tmpdir, "*.vtt"))
-        if not sub_files:
-            sub_files = glob.glob(os.path.join(tmpdir, "*.srt"))
-        if not sub_files:
-            sub_files = glob.glob(os.path.join(tmpdir, "*.json3"))
+        # Look for downloaded subtitle files, preferring formats that parse cleanly.
+        sub_files = []
+        for pattern in ("*.json3", "*.vtt", "*.srv3", "*.srt"):
+            sub_files.extend(glob.glob(os.path.join(tmpdir, pattern)))
 
         if not sub_files:
             print("[Strategy 3] [FAILED] yt-dlp did not produce any subtitle files.")
@@ -301,7 +330,8 @@ def get_youtube_subtitles_ytdlp(url: str) -> str | None:
         try:
             with open(sub_files[0], "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
-            text = _parse_subtitle_text(content)
+            ext = os.path.splitext(sub_files[0])[1].lstrip(".") or "vtt"
+            text = _parse_subtitle_content(content, ext)
             if text and len(text) >= 20:
                 print(f"[Strategy 3] [SUCCESS] Got subtitles via yt-dlp file download ({len(text)} chars)")
                 return text
