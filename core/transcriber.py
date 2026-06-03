@@ -21,9 +21,12 @@ def transcribe_chunk_groq(chunk_path: str) -> str:
     Send a WAV chunk to Groq's Whisper API for transcription.
     Uses whisper-large-v3 — same quality as local Whisper, zero local resources.
     """
-    api_key = os.getenv("GROQ_API_KEY")
-    if not api_key:
-        raise RuntimeError("GROQ_API_KEY is not set in environment / .env")
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not api_key or api_key == "GROQ_API_KEY" or len(api_key) < 10:
+        raise RuntimeError(
+            "GROQ_API_KEY is missing or invalid. "
+            "Set it in Render Dashboard → Environment Variables, or in the local .env file."
+        )
 
     client = Groq(api_key=api_key)
 

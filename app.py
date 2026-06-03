@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)  # MUST be before core imports
 
-from utils.audio_processor import process_input, get_youtube_transcript, get_youtube_subtitles_ytdlp
+from utils.audio_processor import process_input, get_youtube_transcript, get_subtitles_via_extract_info, get_youtube_subtitles_ytdlp
 from core.transcriber import transcribe_all
 from core.summarizer import summarize, generate_title
 from core.extractor import extract_all_insights
@@ -1160,127 +1160,139 @@ if run_btn:
     if not source.strip():
         st.error("⚠️ Please enter a YouTube URL or file path.")
     else:
-        st.session_state.pipeline_done = False
-        st.session_state.result = None
-        st.session_state.chat_history = []
-        st.session_state.pipeline_steps = {}
+        # ── Validate GROQ_API_KEY before starting ────────────────────────────
+        groq_key = os.getenv("GROQ_API_KEY", "").strip()
+        if not groq_key or groq_key == "GROQ_API_KEY" or len(groq_key) < 10:
+            st.error(
+                "🔑 **GROQ_API_KEY is missing or invalid.** "
+                "Please set your Groq API key in Render's Dashboard → Environment Variables, "
+                "or in the local `.env` file. Get a free key at https://console.groq.com"
+            )
+        else:
+            st.session_state.pipeline_done = False
+            st.session_state.result = None
+            st.session_state.chat_history = []
+            st.session_state.pipeline_steps = {}
 
-        progress_placeholder = st.empty()
+            progress_placeholder = st.empty()
 
-        def update_step(key, state):
-            st.session_state.pipeline_steps[key] = state
+            def update_step(key, state):
+                st.session_state.pipeline_steps[key] = state
 
-        try:
-            is_youtube = source.strip().startswith("http") and ("youtu" in source)
-            is_cloud = bool(os.getenv("RENDER") or os.getenv("PORT"))
-            transcript = None
+            try:
+                is_youtube = source.strip().startswith("http") and ("youtu" in source)
+                transcript = None
 
-            # ── Strategy 1: YouTube captions via youtube-transcript-api (fastest)
-            if is_youtube:
-                render_loading(5, "📝", "Fetching YouTube captions", progress_placeholder)
-                update_step("audio", "active")
-                update_step("transcript", "active")
-                transcript = get_youtube_transcript(source)
+                if is_youtube:
+                    # ── Strategy 1: youtube-transcript-api (fastest, direct captions)
+                    render_loading(5, "📝", "Fetching YouTube captions", progress_placeholder)
+                    update_step("audio", "active")
+                    update_step("transcript", "active")
+                    transcript = get_youtube_transcript(source)
 
-            # ── Strategy 2: yt-dlp subtitle extraction (no audio download)
-            if not transcript and is_youtube:
-                render_loading(12, "📝", "Trying subtitle extraction", progress_placeholder)
-                transcript = get_youtube_subtitles_ytdlp(source)
+                    # ── Strategy 2: yt-dlp extract_info → CDN subtitle fetch
+                    if not transcript:
+                        render_loading(12, "📝", "Extracting subtitles from video metadata", progress_placeholder)
+                        transcript = get_subtitles_via_extract_info(source)
 
-            if transcript:
-                # Captions fetched successfully — skip audio download entirely
-                update_step("audio", "done")
-                update_step("transcript", "done")
-            elif is_youtube and is_cloud:
-                # Both caption methods failed on cloud — show a clear error
-                raise RuntimeError(
-                    "Could not fetch captions for this video. "
-                    "This video may not have subtitles/captions enabled on YouTube, "
-                    "or YouTube is blocking requests from the server. "
-                    "Please try a different video that has captions, or run the app locally."
-                )
-            else:
-                # ── Strategy 3: Download audio → Whisper (localhost only, or local files)
-                render_loading(5, "🔊", "Downloading & extracting audio", progress_placeholder)
-                update_step("audio", "active")
-                chunks = process_input(source)
-                update_step("audio", "done")
+                    # ── Strategy 3: yt-dlp subtitle file download
+                    if not transcript:
+                        render_loading(18, "📝", "Trying subtitle file download", progress_placeholder)
+                        transcript = get_youtube_subtitles_ytdlp(source)
 
-                render_loading(20, "📝", "Transcribing audio with Whisper", progress_placeholder)
-                update_step("transcript", "active")
-                transcript = transcribe_all(chunks, language)
-                update_step("transcript", "done")
+                if transcript:
+                    # Captions fetched successfully — skip audio download entirely
+                    update_step("audio", "done")
+                    update_step("transcript", "done")
+                else:
+                    # ── Strategy 4: Download audio → Whisper (works locally, may work on cloud with ffmpeg)
+                    render_loading(5, "🔊", "Downloading & extracting audio", progress_placeholder)
+                    update_step("audio", "active")
+                    chunks = process_input(source)
+                    update_step("audio", "done")
 
-            # Step 3: Title generation (40% → 50%)
-            render_loading(45, "🏷️", "Generating video title", progress_placeholder)
-            update_step("title", "active")
-            title = generate_title(transcript)
-            update_step("title", "done")
+                    render_loading(20, "📝", "Transcribing audio with Whisper", progress_placeholder)
+                    update_step("transcript", "active")
+                    transcript = transcribe_all(chunks, language)
+                    update_step("transcript", "done")
 
-            # Step 4: Summarization (50% → 65%)
-            render_loading(55, "📋", "Creating intelligent summary", progress_placeholder)
-            update_step("summary", "active")
-            summary = summarize(transcript)
-            update_step("summary", "done")
+                # Step 3: Title generation
+                render_loading(45, "🏷️", "Generating video title", progress_placeholder)
+                update_step("title", "active")
+                title = generate_title(transcript)
+                update_step("title", "done")
 
-            # Step 5: Insight extraction — SINGLE combined call (65% → 85%)
-            render_loading(70, "🔍", "Extracting insights & action items", progress_placeholder)
-            update_step("extract", "active")
-            insights = extract_all_insights(transcript)
-            action_items = insights["action_items"]
-            decisions    = insights["key_decisions"]
-            questions    = insights["open_questions"]
-            update_step("extract", "done")
+                # Step 4: Summarization
+                render_loading(55, "📋", "Creating intelligent summary", progress_placeholder)
+                update_step("summary", "active")
+                summary = summarize(transcript)
+                update_step("summary", "done")
 
-            # Step 6: RAG engine (85% → 100%)
-            render_loading(90, "🧠", "Building knowledge engine", progress_placeholder)
-            update_step("rag", "active")
-            rag_chain = build_rag_chain(transcript)
-            update_step("rag", "done")
+                # Step 5: Insight extraction — SINGLE combined call
+                render_loading(70, "🔍", "Extracting insights & action items", progress_placeholder)
+                update_step("extract", "active")
+                insights = extract_all_insights(transcript)
+                action_items = insights["action_items"]
+                decisions    = insights["key_decisions"]
+                questions    = insights["open_questions"]
+                update_step("extract", "done")
 
-            st.session_state.result = {
-                "title": title,
-                "transcript": transcript,
-                "summary": summary,
-                "action_items": action_items,
-                "key_decisions": decisions,
-                "open_questions": questions,
-                "rag_chain": rag_chain,
-            }
-            st.session_state.pipeline_done = True
-            
-            # Add to history
-            st.session_state.analysis_history.append({
-                "title": title[:50],
-                "words": count_words(transcript),
-            })
+                # Step 6: RAG engine
+                render_loading(90, "🧠", "Building knowledge engine", progress_placeholder)
+                update_step("rag", "active")
+                rag_chain = build_rag_chain(transcript)
+                update_step("rag", "done")
 
-            # Show 100% briefly
-            render_loading(100, "✅", "Analysis complete!", progress_placeholder)
-            time.sleep(0.8)
-            progress_placeholder.empty()
-            st.rerun()
+                st.session_state.result = {
+                    "title": title,
+                    "transcript": transcript,
+                    "summary": summary,
+                    "action_items": action_items,
+                    "key_decisions": decisions,
+                    "open_questions": questions,
+                    "rag_chain": rag_chain,
+                }
+                st.session_state.pipeline_done = True
+                
+                # Add to history
+                st.session_state.analysis_history.append({
+                    "title": title[:50],
+                    "words": count_words(transcript),
+                })
 
-        except Exception as e:
-            for k in ["audio","transcript","title","summary","extract","rag"]:
-                if st.session_state.pipeline_steps.get(k) == "active":
-                    st.session_state.pipeline_steps[k] = "pending"
-            
-            error_msg = str(e)
-            if "rate_limit" in error_msg or "429" in error_msg or "tokens per minute" in error_msg.lower():
-                progress_placeholder.error(
-                    "⏳ **Rate limit reached.** Please wait 1-2 minutes and try again, or try a shorter video."
-                )
-            elif "413" in error_msg or "Request too large" in error_msg or "Request Entity Too Large" in error_msg:
-                progress_placeholder.error(
-                    "📏 **Video too large for free tier.** Please try a shorter video (under 5 minutes)."
-                )
-            elif "GROQ_API_KEY" in error_msg:
-                progress_placeholder.error(
-                    "🔑 **GROQ_API_KEY is missing.** Please add your key to the `.env` file."
-                )
-            else:
-                progress_placeholder.error(f"❌ Error: {e}")
+                # Show 100% briefly
+                render_loading(100, "✅", "Analysis complete!", progress_placeholder)
+                time.sleep(0.8)
+                progress_placeholder.empty()
+                st.rerun()
+
+            except Exception as e:
+                for k in ["audio","transcript","title","summary","extract","rag"]:
+                    if st.session_state.pipeline_steps.get(k) == "active":
+                        st.session_state.pipeline_steps[k] = "pending"
+                
+                error_msg = str(e)
+                if "rate_limit" in error_msg or "429" in error_msg or "tokens per minute" in error_msg.lower():
+                    progress_placeholder.error(
+                        "⏳ **Rate limit reached.** Please wait 1-2 minutes and try again, or try a shorter video."
+                    )
+                elif "413" in error_msg or "Request too large" in error_msg or "Request Entity Too Large" in error_msg:
+                    progress_placeholder.error(
+                        "📏 **Video too large for free tier.** Please try a shorter video (under 5 minutes)."
+                    )
+                elif "GROQ_API_KEY" in error_msg or "api_key" in error_msg.lower() or "authentication" in error_msg.lower():
+                    progress_placeholder.error(
+                        "🔑 **GROQ_API_KEY is missing or invalid.** "
+                        "Set it in Render Dashboard → Environment Variables, or in the `.env` file."
+                    )
+                elif "Could not fetch" in error_msg or "captions" in error_msg.lower():
+                    progress_placeholder.error(
+                        f"📝 **Transcript Error:** {e}\n\n"
+                        "YouTube may be blocking requests from this server. "
+                        "Try a different video or run locally."
+                    )
+                else:
+                    progress_placeholder.error(f"❌ Error: {e}")
 
 # ─── Results ────────────────────────────────────────────────────────────────────
 if st.session_state.result:

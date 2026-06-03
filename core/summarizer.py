@@ -6,9 +6,15 @@ import os
 
 
 def get_llm():
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not api_key or api_key == "GROQ_API_KEY" or len(api_key) < 10:
+        raise RuntimeError(
+            "GROQ_API_KEY is missing or invalid. "
+            "Set it in Render Dashboard → Environment Variables, or in the local .env file."
+        )
     return ChatGroq(
         model="llama-3.1-8b-instant",
-        api_key=os.getenv("GROQ_API_KEY"),
+        api_key=api_key,
         temperature=0.3,
         max_retries=5,
     )

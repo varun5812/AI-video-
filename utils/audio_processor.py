@@ -3,15 +3,18 @@ Audio / transcript acquisition utilities.
 
 Strategy for YouTube URLs (in order):
   1. Try youtube-transcript-api to fetch existing captions — instant, no
-     download, works on all cloud servers (no bot detection issues).
-  2. Fall back to yt-dlp audio download → Groq Whisper transcription if
-     captions are unavailable.
+     download, works on most servers.
+  2. Use yt-dlp extract_info to get subtitle URLs from video metadata,
+     then fetch subtitle content via requests (CDN URLs are less blocked).
+  3. Fall back to yt-dlp subtitle file download (skip_download mode).
+  4. Last resort: yt-dlp audio download → Groq Whisper transcription.
 
 For local files the audio-download path is always used.
 """
 
 import os
 import re
+import requests as _requests
 import yt_dlp
 from pydub import AudioSegment
 
@@ -36,23 +39,23 @@ def extract_video_id(url: str) -> str | None:
 
 def get_youtube_transcript(url: str) -> str | None:
     """
-    Try to fetch the transcript via YouTube's caption system.
-    Returns the full transcript text, or None if captions are not available.
+    Strategy 1: fetch transcript via youtube-transcript-api.
+    Returns the full transcript text, or None if unavailable.
     """
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
     except ImportError:
-        print("youtube-transcript-api not installed — skipping caption fetch.")
+        print("[Strategy 1] youtube-transcript-api not installed — skipping.")
         return None
 
     video_id = extract_video_id(url)
     if not video_id:
-        print("Could not extract video ID from URL.")
+        print("[Strategy 1] Could not extract video ID from URL.")
         return None
 
     ytt_api = YouTubeTranscriptApi()
 
-    # Try multiple language combinations — most YouTube videos have at least one
+    # Try multiple language combinations
     language_attempts = [
         ["en"],
         ["en-US", "en-GB", "en-IN"],
@@ -66,11 +69,11 @@ def get_youtube_transcript(url: str) -> str | None:
             full_text = " ".join(snippet.text for snippet in fetched).strip()
 
             if len(full_text) >= 20:
-                print(f"Fetched YouTube captions ({len(full_text)} chars, langs={langs})")
+                print(f"[Strategy 1] ✅ Fetched YouTube captions ({len(full_text)} chars, langs={langs})")
                 return full_text
 
         except Exception as e:
-            print(f"Caption attempt with {langs} failed: {e}")
+            print(f"[Strategy 1] Caption attempt with {langs} failed: {e}")
             continue
 
     # Last resort: list all available transcripts and try translate to English
@@ -83,7 +86,7 @@ def get_youtube_transcript(url: str) -> str | None:
                     fetched = t.fetch()
                     full_text = " ".join(snippet.text for snippet in fetched).strip()
                     if len(full_text) >= 20:
-                        print(f"Fetched captions via list ({len(full_text)} chars, lang={t.language_code})")
+                        print(f"[Strategy 1] ✅ Fetched captions via list ({len(full_text)} chars, lang={t.language_code})")
                         return full_text
                 else:
                     # Try to translate non-English captions to English
@@ -92,28 +95,159 @@ def get_youtube_transcript(url: str) -> str | None:
                         fetched = translated.fetch()
                         full_text = " ".join(snippet.text for snippet in fetched).strip()
                         if len(full_text) >= 20:
-                            print(f"Fetched translated captions ({len(full_text)} chars, {t.language_code}->en)")
+                            print(f"[Strategy 1] ✅ Fetched translated captions ({len(full_text)} chars, {t.language_code}->en)")
                             return full_text
                     except Exception:
-                        # Translation not available — skip this one
-                        print(f"Translation from {t.language_code} to English not available.")
+                        print(f"[Strategy 1] Translation from {t.language_code} to English not available.")
                         continue
             except Exception:
                 continue
     except Exception as e:
-        print(f"Listing transcripts also failed: {e}")
+        print(f"[Strategy 1] Listing transcripts also failed: {e}")
 
-    print("No usable captions found for this video.")
+    print("[Strategy 1] ❌ No usable captions found via youtube-transcript-api.")
     return None
 
 
-# ── yt-dlp subtitle extraction (fallback for cloud) ───────────────────────────
+# ── yt-dlp extract_info subtitle URL fetching (Strategy 2) ────────────────────
+
+def get_subtitles_via_extract_info(url: str) -> str | None:
+    """
+    Strategy 2: use yt-dlp's extract_info(download=False) to get subtitle URLs
+    from video metadata, then fetch the subtitle content via requests.
+
+    This works differently from direct caption APIs because:
+    - extract_info uses YouTube's innertube API (internal client API)
+    - Subtitle content is served from YouTube's CDN, which is less blocked
+    - No actual download occurs — just metadata extraction + URL fetch
+    """
+    video_id = extract_video_id(url)
+    if not video_id:
+        return None
+
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        # Don't write anything to disk
+        "writesubtitles": False,
+        "writeautomaticsub": False,
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            print("[Strategy 2] Extracting video info via yt-dlp...")
+            info = ydl.extract_info(url, download=False)
+    except Exception as e:
+        print(f"[Strategy 2] ❌ extract_info failed: {e}")
+        return None
+
+    if not info:
+        print("[Strategy 2] ❌ extract_info returned empty result.")
+        return None
+
+    # Check for subtitles in the metadata
+    manual_subs = info.get("subtitles", {}) or {}
+    auto_subs = info.get("automatic_captions", {}) or {}
+
+    print(f"[Strategy 2] Found manual subtitle langs: {list(manual_subs.keys())[:5]}")
+    print(f"[Strategy 2] Found auto-caption langs: {list(auto_subs.keys())[:5]}")
+
+    # Preferred languages in order
+    preferred_langs = ["en", "en-US", "en-GB", "en-IN", "en-orig", "hi"]
+    # Preferred formats in order (json3 is easiest to parse, then vtt, then srv3)
+    preferred_formats = ["json3", "vtt", "srv3", "srt"]
+
+    # Try manual subs first, then auto-generated
+    for subs_source, source_name in [(manual_subs, "manual"), (auto_subs, "auto")]:
+        for lang in preferred_langs:
+            if lang not in subs_source:
+                continue
+
+            formats = subs_source[lang]
+            for fmt_pref in preferred_formats:
+                for fmt_entry in formats:
+                    if fmt_entry.get("ext") == fmt_pref and fmt_entry.get("url"):
+                        sub_url = fmt_entry["url"]
+                        try:
+                            print(f"[Strategy 2] Fetching {source_name} subtitles ({lang}/{fmt_pref}) from CDN...")
+                            resp = _requests.get(sub_url, timeout=15, headers={
+                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                            })
+                            if resp.ok and len(resp.text) > 50:
+                                text = _parse_subtitle_content(resp.text, fmt_pref)
+                                if text and len(text) >= 20:
+                                    print(f"[Strategy 2] ✅ Got subtitles via extract_info ({len(text)} chars, {source_name}/{lang}/{fmt_pref})")
+                                    return text
+                        except Exception as e:
+                            print(f"[Strategy 2] Failed to fetch subtitle URL: {e}")
+                            continue
+
+    print("[Strategy 2] ❌ No usable subtitles found via extract_info.")
+    return None
+
+
+def _parse_subtitle_content(content: str, fmt: str) -> str:
+    """Parse subtitle content (json3/vtt/srv3/srt) into plain text."""
+    import json as _json
+
+    if fmt == "json3":
+        try:
+            data = _json.loads(content)
+            events = data.get("events", [])
+            lines = []
+            for event in events:
+                segs = event.get("segs", [])
+                for seg in segs:
+                    text = seg.get("utf8", "").strip()
+                    if text and text != "\n":
+                        lines.append(text)
+            result = " ".join(lines).strip()
+            # Clean up extra whitespace
+            result = re.sub(r"\s+", " ", result)
+            return result
+        except Exception:
+            pass
+
+    # For vtt/srt/srv3 — use the file parser
+    return _parse_subtitle_text(content)
+
+
+def _parse_subtitle_text(content: str) -> str:
+    """
+    Parse VTT or SRT subtitle text and extract plain text.
+    Removes timestamps, formatting tags, and duplicate lines.
+    """
+    # Remove VTT header
+    content = re.sub(r"^WEBVTT.*?\n\n", "", content, flags=re.DOTALL)
+
+    # Remove timestamp lines (e.g., "00:00:01.000 --> 00:00:04.000")
+    content = re.sub(r"\d{2}:\d{2}:\d{2}[.,]\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}[.,]\d{3}.*?\n", "", content)
+
+    # Remove SRT sequence numbers (lines that are just digits)
+    content = re.sub(r"^\d+\s*$", "", content, flags=re.MULTILINE)
+
+    # Remove HTML-like tags (<c>, </c>, <b>, etc.)
+    content = re.sub(r"<[^>]+>", "", content)
+
+    # Remove position/alignment tags
+    content = re.sub(r"align:.*?position:.*?\n", "", content)
+
+    # Deduplicate consecutive identical lines (common in VTT auto-captions)
+    lines = [line.strip() for line in content.split("\n") if line.strip()]
+    deduplicated = []
+    for line in lines:
+        if not deduplicated or line != deduplicated[-1]:
+            deduplicated.append(line)
+
+    return " ".join(deduplicated).strip()
+
+
+# ── yt-dlp subtitle file download (Strategy 3) ────────────────────────────────
 
 def get_youtube_subtitles_ytdlp(url: str) -> str | None:
     """
-    Fallback: use yt-dlp to extract subtitles WITHOUT downloading the video.
-    This uses --skip-download + --write-sub/--write-auto-sub which is lighter
-    than a full audio download and may succeed where youtube-transcript-api fails.
+    Strategy 3: use yt-dlp to download subtitle files (skip video download).
     Returns the transcript text, or None on failure.
     """
     import tempfile
@@ -123,7 +257,6 @@ def get_youtube_subtitles_ytdlp(url: str) -> str | None:
     if not video_id:
         return None
 
-    # Use a temp dir so we don't pollute the project
     with tempfile.TemporaryDirectory() as tmpdir:
         output_template = os.path.join(tmpdir, "%(id)s.%(ext)s")
         ydl_opts = {
@@ -139,71 +272,39 @@ def get_youtube_subtitles_ytdlp(url: str) -> str | None:
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                print("[Strategy 3] Downloading subtitle files via yt-dlp...")
                 ydl.download([url])
         except Exception as e:
-            print(f"yt-dlp subtitle extraction failed: {e}")
+            print(f"[Strategy 3] ❌ yt-dlp subtitle download failed: {e}")
             return None
 
-        # Look for any downloaded subtitle files
+        # Look for downloaded subtitle files
         sub_files = glob.glob(os.path.join(tmpdir, "*.vtt"))
         if not sub_files:
-            # Also check for .srt or any other subtitle format
             sub_files = glob.glob(os.path.join(tmpdir, "*.srt"))
         if not sub_files:
             sub_files = glob.glob(os.path.join(tmpdir, "*.json3"))
 
         if not sub_files:
-            print("yt-dlp did not produce any subtitle files.")
+            print("[Strategy 3] ❌ yt-dlp did not produce any subtitle files.")
             return None
 
         # Parse the first available subtitle file
         try:
-            text = _parse_subtitle_file(sub_files[0])
+            with open(sub_files[0], "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+            text = _parse_subtitle_text(content)
             if text and len(text) >= 20:
-                print(f"Fetched subtitles via yt-dlp ({len(text)} chars)")
+                print(f"[Strategy 3] ✅ Got subtitles via yt-dlp file download ({len(text)} chars)")
                 return text
         except Exception as e:
-            print(f"Failed to parse subtitle file: {e}")
+            print(f"[Strategy 3] Failed to parse subtitle file: {e}")
 
+    print("[Strategy 3] ❌ No usable subtitles from yt-dlp file download.")
     return None
 
 
-def _parse_subtitle_file(filepath: str) -> str:
-    """
-    Parse a VTT or SRT subtitle file and extract plain text.
-    Removes timestamps, formatting tags, and duplicate lines.
-    """
-    import re as _re
-
-    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-        content = f.read()
-
-    # Remove VTT header
-    content = _re.sub(r"^WEBVTT.*?\n\n", "", content, flags=_re.DOTALL)
-
-    # Remove timestamp lines (e.g., "00:00:01.000 --> 00:00:04.000")
-    content = _re.sub(r"\d{2}:\d{2}:\d{2}[.,]\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}[.,]\d{3}.*?\n", "", content)
-
-    # Remove SRT sequence numbers (lines that are just digits)
-    content = _re.sub(r"^\d+\s*$", "", content, flags=_re.MULTILINE)
-
-    # Remove HTML-like tags (<c>, </c>, <b>, etc.)
-    content = _re.sub(r"<[^>]+>", "", content)
-
-    # Remove position/alignment tags
-    content = _re.sub(r"align:.*?position:.*?\n", "", content)
-
-    # Deduplicate consecutive identical lines (common in VTT auto-captions)
-    lines = [line.strip() for line in content.split("\n") if line.strip()]
-    deduplicated = []
-    for line in lines:
-        if not deduplicated or line != deduplicated[-1]:
-            deduplicated.append(line)
-
-    return " ".join(deduplicated).strip()
-
-
-# ── Audio download (yt-dlp) — fallback ────────────────────────────────────────
+# ── Audio download (yt-dlp) — last resort ─────────────────────────────────────
 
 def download_youtube_audio(url: str) -> str:
     """Download audio from YouTube using yt-dlp and convert to WAV."""
