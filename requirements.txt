@@ -25,3 +25,6 @@ watchdog>=4.0.0                   # File-change watcher (improves Streamlit hot-
 # ── Utilities ─────────────────────────────────────────────────────────────────
 python-dotenv>=1.0.0              # Load API keys from .env
 requests>=2.32.0
+
+# ── MCP Server (Model Context Protocol) ──────────────────────────────────────
+mcp[cli]>=1.0.0                   # Official MCP SDK with FastMCP server

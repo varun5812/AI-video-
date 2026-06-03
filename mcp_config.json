@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "ai-video-assistant": {
+      "command": "python",
+      "args": ["c:/New folder/AI-Video-Fresh/mcp_server.py"],
+      "env": {
+        "GROQ_API_KEY": "YOUR_GROQ_API_KEY_HERE"
+      }
+    }
+  }
+}
