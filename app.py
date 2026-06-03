@@ -1111,27 +1111,40 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     # Input Section
-    st.markdown('<div class="sb-section-label">🎤 Input</div>', unsafe_allow_html=True)
-    source = st.text_input(
-        "YouTube URL",
-        placeholder="https://youtube.com/watch?v=...",
-        help="Paste a YouTube link — captions will be fetched automatically.",
-        label_visibility="collapsed"
-    )
-    uploaded_media = st.file_uploader(
-        "Upload audio/video",
-        type=["mp3", "mp4", "m4a", "wav", "webm", "mov", "aac", "ogg"],
-        label_visibility="collapsed",
-        help="Upload an audio/video file and Groq Whisper will transcribe it.",
-    )
-    pasted_transcript = st.text_area(
-        "Paste transcript",
-        placeholder="Optional: paste captions/transcript here...",
-        height=90,
-        label_visibility="collapsed",
-        help="If you already have a transcript, paste it here to skip extraction.",
-    )
-    language = st.selectbox("Language", ["English", "Kannada", "Telugu", "Hindi"], index=0, label_visibility="collapsed")
+    st.markdown('<div class="sb-section-label">🎤 Input Source</div>', unsafe_allow_html=True)
+    
+    with st.container(border=True):
+        source = st.text_input(
+            "🎥 YouTube URL",
+            placeholder="https://youtube.com/watch?v=...",
+            help="Paste a YouTube link — captions will be fetched automatically.",
+        )
+        
+        st.markdown("<div style='text-align: center; margin: 0.2rem 0; color: #94a3b8; font-size: 0.75rem; font-weight: 600;'>— OR —</div>", unsafe_allow_html=True)
+        
+        uploaded_media = st.file_uploader(
+            "📁 Upload File",
+            type=["mp3", "mp4", "m4a", "wav", "webm", "mov", "aac", "ogg"],
+            help="Upload an audio/video file and Groq Whisper will transcribe it.",
+        )
+        
+        st.markdown("<div style='text-align: center; margin: 0.2rem 0; color: #94a3b8; font-size: 0.75rem; font-weight: 600;'>— OR —</div>", unsafe_allow_html=True)
+        
+        pasted_transcript = st.text_area(
+            "📝 Paste Transcript",
+            placeholder="Directly paste captions here...",
+            height=90,
+            help="If you already have a transcript, paste it here to skip extraction.",
+        )
+
+    st.markdown('<div class="sb-section-label" style="margin-top: 1rem;">🌐 Output Language</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        language = st.selectbox(
+            "Select Language", 
+            ["English", "Kannada", "Telugu", "Hindi"], 
+            index=0, 
+            label_visibility="collapsed"
+        )
 
     st.markdown("<div style='height:0.35rem'></div>", unsafe_allow_html=True)
     run_btn = st.button("⚡  Analyse Video", use_container_width=True)
