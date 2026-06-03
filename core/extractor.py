@@ -26,7 +26,7 @@ def get_llm():
     )
 
 
-def extract_all_insights(transcript: str) -> dict:
+def extract_all_insights(transcript: str, language: str = "English") -> dict:
     """
     Extract action items, key decisions, and open questions in ONE API call.
     Returns a dict with keys: action_items, key_decisions, open_questions.
@@ -50,12 +50,13 @@ def extract_all_insights(transcript: str) -> dict:
          "- [question 2]\n"
          "(If none found, write: No specific open questions identified in this content.)\n\n"
          "IMPORTANT: Always provide thoughtful analysis. Even for informal content, identify implied action items, "
-         "decisions or topics discussed, and questions raised or left unanswered. Be thorough."),
+         "decisions or topics discussed, and questions raised or left unanswered. Be thorough.\n\n"
+         "CRITICAL LANGUAGE INSTRUCTION: Always write the extracted content and responses entirely in {language} (except for the markdown headers '## Action Items', '## Key Decisions', '## Open Questions' which must remain exactly as written in English)."),
         ("human", "{text}"),
     ])
 
     chain = prompt | llm | StrOutputParser()
-    result = chain.invoke({"text": transcript[:MAX_TRANSCRIPT_CHARS]})
+    result = chain.invoke({"text": transcript[:MAX_TRANSCRIPT_CHARS], "language": language})
 
     # Parse the sections
     parsed = {
@@ -83,16 +84,16 @@ def extract_all_insights(transcript: str) -> dict:
 
 
 # Keep individual functions for backward compatibility
-def extract_action_items(transcript: str) -> str:
+def extract_action_items(transcript: str, language: str = "English") -> str:
     """Kept for compatibility — use extract_all_insights() instead."""
-    return extract_all_insights(transcript)["action_items"]
+    return extract_all_insights(transcript, language)["action_items"]
 
 
-def extract_key_decisions(transcript: str) -> str:
+def extract_key_decisions(transcript: str, language: str = "English") -> str:
     """Kept for compatibility — use extract_all_insights() instead."""
-    return extract_all_insights(transcript)["key_decisions"]
+    return extract_all_insights(transcript, language)["key_decisions"]
 
 
-def extract_questions(transcript: str) -> str:
+def extract_questions(transcript: str, language: str = "English") -> str:
     """Kept for compatibility — use extract_all_insights() instead."""
-    return extract_all_insights(transcript)["open_questions"]
+    return extract_all_insights(transcript, language)["open_questions"]

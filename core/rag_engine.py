@@ -60,7 +60,7 @@ def build_lightweight_retriever(transcript: str, k: int = 4):
 
     return retrieve
 
-def build_rag_chain(transcript:str):
+def build_rag_chain(transcript: str, language: str = "English"):
 
     retriever = build_lightweight_retriever(transcript, k=4)
     llm = get_llm()
@@ -69,16 +69,14 @@ def build_rag_chain(transcript:str):
 
         [(
             "system",
-            """You are an expert meeting assistant. Answer the user's question 
-based ONLY on the meeting transcript context provided below.
-
-If the answer is not found in the context, say: 
-"I could not find this information in the meeting transcript."
-
-Always be concise and precise. If quoting someone, mention it clearly.
-
-Context from meeting transcript:
-{context}""",
+            "You are an expert meeting assistant. Answer the user's question "
+            "based ONLY on the meeting transcript context provided below.\n\n"
+            "If the answer is not found in the context, say: "
+            "'I could not find this information in the meeting transcript.'\n\n"
+            "Always be concise and precise. If quoting someone, mention it clearly.\n\n"
+            "IMPORTANT LANGUAGE INSTRUCTION: Always answer the user's question in {language}, regardless of what language the transcript is in.\n\n"
+            "Context from meeting transcript:\n"
+            "{context}"
         ),
         ("human", "{question}"),
     ]
@@ -89,7 +87,8 @@ Context from meeting transcript:
     rag_chain = (
 
         {"context" : RunnableLambda(retriever) | RunnableLambda(format_docs),
-         "question": RunnablePassthrough()
+         "question": RunnablePassthrough(),
+         "language": lambda x: language
          }
          |prompt|llm|StrOutputParser()
     )

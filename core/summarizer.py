@@ -20,7 +20,7 @@ def get_llm():
     )
 
 
-def summarize(transcript: str) -> str:
+def summarize(transcript: str, language: str = "English") -> str:
     """Summarize in a single LLM call by truncating to fit within token limits."""
     llm = get_llm()
 
@@ -31,24 +31,26 @@ def summarize(transcript: str) -> str:
         ("system",
          "You are an expert meeting summarizer. Create a professional, detailed "
          "meeting summary from the transcript below. Use clear bullet points. "
-         "Cover all major topics, decisions, and outcomes discussed."),
+         "Cover all major topics, decisions, and outcomes discussed.\n\n"
+         "IMPORTANT: Always output your complete response in {language}."),
         ("human", "{text}"),
     ])
 
     chain = prompt | llm | StrOutputParser()
-    return chain.invoke({"text": truncated})
+    return chain.invoke({"text": truncated, "language": language})
 
 
-def generate_title(transcript: str) -> str:
+def generate_title(transcript: str, language: str = "English") -> str:
     llm = get_llm()
 
     prompt = ChatPromptTemplate.from_messages([
         ("system",
          "Based on the meeting transcript, generate a short professional meeting title "
-         "(max 8 words). Only return the title, nothing else."),
+         "(max 8 words). Only return the title, nothing else.\n\n"
+         "IMPORTANT: Always output your response in {language}."),
         ("human", "{text}"),
     ])
 
     chain = prompt | llm | StrOutputParser()
     time.sleep(3)  # Rate-limit buffer for Groq free tier
-    return chain.invoke({"text": transcript[:1000]})
+    return chain.invoke({"text": transcript[:1000], "language": language})

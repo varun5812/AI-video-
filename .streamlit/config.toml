@@ -9,4 +9,5 @@ fileWatcherType = "none"
 gatherUsageStats = false
 
 [theme]
-base = "dark"
+base = "light"
+primaryColor = "#3b82f6"

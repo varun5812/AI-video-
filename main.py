@@ -38,12 +38,12 @@ def run_pipeline(source: str, language: str = "english") -> dict:
 
     print(f"Raw transcription (first 300 chars): {transcript[:300]}")
 
-    title = generate_title(transcript)
-    summary = summarize(transcript)
-    action_item = extract_action_items(transcript)
-    decisions = extract_key_decisions(transcript)
-    questions = extract_questions(transcript)
-    rag_chain = build_rag_chain(transcript)
+    title = generate_title(transcript, language)
+    summary = summarize(transcript, language)
+    action_item = extract_action_items(transcript, language)
+    decisions = extract_key_decisions(transcript, language)
+    questions = extract_questions(transcript, language)
+    rag_chain = build_rag_chain(transcript, language)
 
     return {
         "title": title,
