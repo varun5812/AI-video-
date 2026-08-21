@@ -1,30 +1,13 @@
-from langchain_groq import ChatGroq
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
 import time
 import os
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from core.llm_router import get_llm, DEFAULT_MODEL
 
 
-def get_llm():
-    api_key = os.getenv("GROQ_API_KEY", "").strip()
-    if not api_key or api_key == "GROQ_API_KEY" or len(api_key) < 10:
-        raise RuntimeError(
-            "GROQ_API_KEY is missing or invalid. "
-            "Set it in Render Dashboard → Environment Variables, or in the local .env file."
-        )
-    return ChatGroq(
-        model="llama-3.1-8b-instant",
-        api_key=api_key,
-        temperature=0.3,
-        max_retries=5,
-    )
-
-
-def summarize(transcript: str, language: str = "English") -> str:
+def summarize(transcript: str, language: str = "English", model: str = DEFAULT_MODEL) -> str:
     """Summarize in a single LLM call by truncating to fit within token limits."""
-    llm = get_llm()
-
-    # Truncate to ~4000 chars (~1000 tokens) to stay under free-tier limit
+    llm = get_llm(model)
     truncated = transcript[:4000]
 
     prompt = ChatPromptTemplate.from_messages([
@@ -40,8 +23,8 @@ def summarize(transcript: str, language: str = "English") -> str:
     return chain.invoke({"text": truncated, "language": language})
 
 
-def generate_title(transcript: str, language: str = "English") -> str:
-    llm = get_llm()
+def generate_title(transcript: str, language: str = "English", model: str = DEFAULT_MODEL) -> str:
+    llm = get_llm(model)
 
     prompt = ChatPromptTemplate.from_messages([
         ("system",
@@ -52,5 +35,5 @@ def generate_title(transcript: str, language: str = "English") -> str:
     ])
 
     chain = prompt | llm | StrOutputParser()
-    time.sleep(3)  # Rate-limit buffer for Groq free tier
+    time.sleep(2)  # Rate-limit buffer for free-tier APIs
     return chain.invoke({"text": transcript[:1000], "language": language})

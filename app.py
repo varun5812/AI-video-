@@ -18,6 +18,7 @@ from core.transcriber import transcribe_all
 from core.summarizer import summarize, generate_title
 from core.extractor import extract_all_insights
 from core.rag_engine import build_rag_chain, ask_question
+from core.llm_router import MODEL_OPTIONS, DEFAULT_MODEL, get_provider_badge
 
 # ─── Page Config ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -1144,6 +1145,22 @@ with st.sidebar:
             label_visibility="collapsed"
         )
 
+    st.markdown('<div class="sb-section-label" style="margin-top: 1rem;">🤖 AI Model</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        selected_model = st.selectbox(
+            "Select AI Model",
+            list(MODEL_OPTIONS.keys()),
+            index=0,
+            label_visibility="collapsed",
+            help="Choose which AI model powers the analysis and chat."
+        )
+    badge = get_provider_badge(selected_model)
+    st.markdown(
+        f"<div style='font-size:0.72rem;color:#64748b;margin-bottom:0.4rem;padding:0 2px;'>"
+        f"Powered by {badge}</div>",
+        unsafe_allow_html=True
+    )
+
     st.markdown("<div style='height:0.35rem'></div>", unsafe_allow_html=True)
     run_btn = st.button("⚡  Analyse Video", use_container_width=True)
 
@@ -1286,19 +1303,19 @@ if run_btn:
                 # Step: Title generation
                 render_loading(40, "🏷️", "Generating title", progress_placeholder)
                 update_step("title", "active")
-                title = generate_title(transcript, language)
+                title = generate_title(transcript, language, selected_model)
                 update_step("title", "done")
 
                 # Step: Summarization
                 render_loading(55, "📋", "Creating intelligent summary", progress_placeholder)
                 update_step("summary", "active")
-                summary = summarize(transcript, language)
+                summary = summarize(transcript, language, selected_model)
                 update_step("summary", "done")
 
                 # Step: Insight extraction
                 render_loading(70, "🔍", "Extracting insights & action items", progress_placeholder)
                 update_step("extract", "active")
-                insights = extract_all_insights(transcript, language)
+                insights = extract_all_insights(transcript, language, selected_model)
                 action_items = insights["action_items"]
                 decisions    = insights["key_decisions"]
                 questions    = insights["open_questions"]
@@ -1307,7 +1324,7 @@ if run_btn:
                 # Step: RAG engine
                 render_loading(90, "🧠", "Building knowledge engine", progress_placeholder)
                 update_step("rag", "active")
-                rag_chain = build_rag_chain(transcript, language)
+                rag_chain = build_rag_chain(transcript, language, selected_model)
                 update_step("rag", "done")
 
                 st.session_state.result = {
