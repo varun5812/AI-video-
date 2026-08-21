@@ -1295,17 +1295,22 @@ with st.container():
     with ai_col2:
         ai_send = st.button("Send ➤", use_container_width=True, key="ai_chat_send")
 
+    # Persist the chosen model across reruns
+    st.session_state["active_model"] = selected_model
+
     if ai_send and ai_question.strip():
         from langchain_core.prompts import ChatPromptTemplate
         from langchain_core.output_parsers import StrOutputParser
-        from core.llm_router import get_llm
+        from core.llm_router import get_llm, DEFAULT_MODEL
 
         user_q = ai_question.strip()
         st.session_state.ai_chat_history.append({"role": "user", "content": user_q})
+        # Use the model that was active when user clicked Send
+        active_model = st.session_state.get("active_model", DEFAULT_MODEL)
 
         with st.spinner("AI is thinking..."):
             try:
-                llm = get_llm(selected_model)
+                llm = get_llm(active_model)
                 prompt = ChatPromptTemplate.from_messages([
                     ("system",
                      "You are a helpful, knowledgeable AI assistant. "
