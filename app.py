@@ -1210,10 +1210,32 @@ with st.sidebar:
 
     # Footer
     st.markdown("---")
+    # ── API Key Status ──
+    st.markdown("---")
+    st.markdown('<div class="sb-section-label">🔑 API Key Status</div>', unsafe_allow_html=True)
+    key_html = ""
+    for provider, env_var, label in [
+        ("google", "GOOGLE_API_KEY", "Google Gemini"),
+        ("groq",   "GROQ_API_KEY",   "Groq"),
+        ("openai", "OPENAI_API_KEY", "OpenAI"),
+    ]:
+        key = os.getenv(env_var, "").strip()
+        ok = bool(key and len(key) > 10)
+        dot = "#10b981" if ok else "#ef4444"
+        status = "Ready" if ok else "Key missing"
+        key_html += (
+            f'<div style="display:flex;align-items:center;gap:8px;padding:4px 0;">'
+            f'<div style="width:8px;height:8px;border-radius:50%;background:{dot};flex-shrink:0;"></div>'
+            f'<span style="font-size:0.78rem;color:#334155;">{label}</span>'
+            f'<span style="font-size:0.72rem;color:{"#10b981" if ok else "#ef4444"};margin-left:auto;">{status}</span>'
+            f'</div>'
+        )
+    st.markdown(f'<div style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;">{key_html}</div>', unsafe_allow_html=True)
+
     st.markdown("""
     <div class="sb-footer">
         <div class="sb-footer-label">Powered by</div>
-        <div class="sb-footer-tech">Groq · Llama 3.1 · LangChain</div>
+        <div class="sb-footer-tech">Google Gemini · Groq · OpenAI · LangChain</div>
     </div>
     """, unsafe_allow_html=True)
 
