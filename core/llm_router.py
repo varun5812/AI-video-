@@ -2,7 +2,8 @@
 core/llm_router.py
 ──────────────────
 Multi-model LLM router.
-Supports Groq (Llama 3.1), Google Gemini, and OpenAI GPT models.
+Supports Groq (Llama), Google Gemini, and OpenAI GPT models.
+Model IDs updated August 2026.
 """
 import os
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -10,16 +11,16 @@ from langchain_core.language_models.chat_models import BaseChatModel
 
 # ── Model catalogue ────────────────────────────────────────────────────────────
 MODEL_OPTIONS = {
-    # Display name            : (provider,   model_id)
-    "⚡ Groq — Llama 3.1 8B (Fast)":      ("groq",   "llama-3.1-8b-instant"),
-    "🦙 Groq — Llama 3.3 70B":            ("groq",   "llama-3.3-70b-versatile"),
-    "✨ Google — Gemini 2.0 Flash":        ("google", "gemini-2.0-flash"),
-    "🌟 Google — Gemini 1.5 Pro":          ("google", "gemini-1.5-pro"),
-    "🤖 OpenAI — GPT-4o Mini":             ("openai", "gpt-4o-mini"),
-    "💡 OpenAI — GPT-4o":                  ("openai", "gpt-4o"),
+    # Display name                          : (provider,   model_id)
+    "⚡ Groq — Llama 3.3 70B (Fast)":       ("groq",   "llama-3.3-70b-versatile"),
+    "🦙 Groq — Llama 3 8B":                 ("groq",   "llama3-8b-8192"),
+    "✨ Google — Gemini 3.6 Flash":          ("google", "gemini-3.6-flash"),
+    "🌟 Google — Gemini 2.5 Pro":            ("google", "gemini-2.5-pro"),
+    "🤖 OpenAI — GPT-4o Mini":              ("openai", "gpt-4o-mini"),
+    "💡 OpenAI — GPT-4o":                   ("openai", "gpt-4o"),
 }
 
-DEFAULT_MODEL = "⚡ Groq — Llama 3.1 8B (Fast)"
+DEFAULT_MODEL = "⚡ Groq — Llama 3.3 70B (Fast)"
 
 
 def get_llm(model_display_name: str = DEFAULT_MODEL) -> BaseChatModel:
@@ -27,7 +28,10 @@ def get_llm(model_display_name: str = DEFAULT_MODEL) -> BaseChatModel:
     Return the correct LangChain chat model for the given display name.
     Raises RuntimeError if the required API key is missing.
     """
-    provider, model_id = MODEL_OPTIONS.get(model_display_name, ("groq", "llama-3.1-8b-instant"))
+    provider, model_id = MODEL_OPTIONS.get(
+        model_display_name,
+        ("groq", "llama-3.3-70b-versatile")
+    )
 
     if provider == "groq":
         from langchain_groq import ChatGroq
@@ -56,6 +60,6 @@ def get_llm(model_display_name: str = DEFAULT_MODEL) -> BaseChatModel:
 
 def get_provider_badge(model_display_name: str) -> str:
     """Return a short badge string for the active model."""
-    provider, model_id = MODEL_OPTIONS.get(model_display_name, ("groq", "llama-3.1-8b-instant"))
+    provider, _ = MODEL_OPTIONS.get(model_display_name, ("groq", ""))
     badges = {"groq": "🟣 Groq", "google": "🔵 Gemini", "openai": "🟢 OpenAI"}
     return badges.get(provider, provider)
