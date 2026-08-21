@@ -1111,6 +1111,29 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
+    # ── Model selector at top ──
+    st.markdown(
+        "<div style='background:linear-gradient(135deg,#6366f1,#818cf8);border-radius:12px;"
+        "padding:10px 14px;margin-bottom:12px;'>"
+        "<div style='color:rgba(255,255,255,0.7);font-size:0.65rem;font-weight:700;"
+        "letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px;'>🤖 AI Model</div>",
+        unsafe_allow_html=True
+    )
+    selected_model = st.selectbox(
+        "Select AI Model",
+        list(MODEL_OPTIONS.keys()),
+        index=0,
+        label_visibility="collapsed",
+        key="model_selector_top",
+        help="Choose which AI model powers everything — analysis, summary, insights and chat."
+    )
+    badge = get_provider_badge(selected_model)
+    st.markdown(
+        f"<div style='font-size:0.7rem;color:rgba(255,255,255,0.75);margin-top:4px;'>"
+        f"Active: {badge}</div></div>",
+        unsafe_allow_html=True
+    )
+
     # Input Section
     st.markdown('<div class="sb-section-label">🎤 Input Source</div>', unsafe_allow_html=True)
     
@@ -1144,22 +1167,6 @@ with st.sidebar:
             index=0, 
             label_visibility="collapsed"
         )
-
-    st.markdown('<div class="sb-section-label" style="margin-top: 1rem;">🤖 AI Model</div>', unsafe_allow_html=True)
-    with st.container(border=True):
-        selected_model = st.selectbox(
-            "Select AI Model",
-            list(MODEL_OPTIONS.keys()),
-            index=0,
-            label_visibility="collapsed",
-            help="Choose which AI model powers the analysis and chat."
-        )
-    badge = get_provider_badge(selected_model)
-    st.markdown(
-        f"<div style='font-size:0.72rem;color:#64748b;margin-bottom:0.4rem;padding:0 2px;'>"
-        f"Powered by {badge}</div>",
-        unsafe_allow_html=True
-    )
 
     st.markdown("<div style='height:0.35rem'></div>", unsafe_allow_html=True)
     run_btn = st.button("⚡  Analyse Video", use_container_width=True)
@@ -1223,6 +1230,113 @@ st.markdown("""
     </div>
 </div>
 """, unsafe_allow_html=True)
+
+# ─── AI Chat (always available) ─────────────────────────────────────────────────
+if "ai_chat_history" not in st.session_state:
+    st.session_state.ai_chat_history = []
+
+with st.container():
+    st.markdown("""
+    <div style="
+        background: linear-gradient(135deg, #f0f4ff 0%, #faf5ff 100%);
+        border: 1.5px solid #e0e7ff;
+        border-radius: 20px;
+        padding: 28px 32px 20px;
+        margin: 8px 0 28px 0;
+        box-shadow: 0 4px 24px rgba(99,102,241,0.08);
+    ">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">
+            <div style="background:linear-gradient(135deg,#6366f1,#8b5cf6);width:40px;height:40px;
+                border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;">
+                💬
+            </div>
+            <div>
+                <div style="font-size:1.1rem;font-weight:800;color:#1e1b4b;">AI Chat Assistant</div>
+                <div style="font-size:0.78rem;color:#6366f1;font-weight:500;">Ask anything — get a structured answer instantly</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Chat history display
+    chat_container = st.container()
+    with chat_container:
+        for msg in st.session_state.ai_chat_history:
+            if msg["role"] == "user":
+                st.markdown(f"""
+                <div style="display:flex;justify-content:flex-end;margin:8px 0;">
+                    <div style="background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;
+                        padding:12px 18px;border-radius:18px 18px 4px 18px;max-width:75%;
+                        font-size:0.9rem;line-height:1.5;box-shadow:0 2px 8px rgba(99,102,241,0.25);">
+                        {msg['content']}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div style="display:flex;justify-content:flex-start;margin:8px 0;">
+                    <div style="background:white;border:1.5px solid #e0e7ff;
+                        padding:14px 18px;border-radius:18px 18px 18px 4px;max-width:80%;
+                        font-size:0.9rem;line-height:1.6;box-shadow:0 2px 12px rgba(0,0,0,0.06);">
+                        {msg['content']}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+    # Input row
+    ai_col1, ai_col2 = st.columns([5, 1])
+    with ai_col1:
+        ai_question = st.text_input(
+            "Ask AI anything",
+            placeholder="e.g. Explain machine learning in simple terms...",
+            label_visibility="collapsed",
+            key="ai_chat_input"
+        )
+    with ai_col2:
+        ai_send = st.button("Send ➤", use_container_width=True, key="ai_chat_send")
+
+    if ai_send and ai_question.strip():
+        from langchain_core.prompts import ChatPromptTemplate
+        from langchain_core.output_parsers import StrOutputParser
+        from core.llm_router import get_llm
+
+        user_q = ai_question.strip()
+        st.session_state.ai_chat_history.append({"role": "user", "content": user_q})
+
+        with st.spinner("AI is thinking..."):
+            try:
+                llm = get_llm(selected_model)
+                prompt = ChatPromptTemplate.from_messages([
+                    ("system",
+                     "You are a helpful, knowledgeable AI assistant. "
+                     "Always respond in a clear, structured way using:\n"
+                     "- Short paragraphs or bullet points\n"
+                     "- Bold key terms where relevant\n"
+                     "- A concise answer first, then explanation\n"
+                     "Be friendly, precise and professional."),
+                    ("human", "{question}"),
+                ])
+                chain = prompt | llm | StrOutputParser()
+                answer = chain.invoke({"question": user_q})
+                # Convert markdown-style bold to HTML for chat bubbles
+                import re as _re
+                answer_html = _re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", answer)
+                answer_html = answer_html.replace("\n", "<br>")
+                st.session_state.ai_chat_history.append({"role": "assistant", "content": answer_html})
+            except Exception as e:
+                st.session_state.ai_chat_history.append({
+                    "role": "assistant",
+                    "content": f"⚠️ Error: {str(e)}"
+                })
+        st.rerun()
+
+    # Clear chat button
+    if st.session_state.ai_chat_history:
+        if st.button("🗑️ Clear Chat", key="ai_clear_chat"):
+            st.session_state.ai_chat_history = []
+            st.rerun()
+
+st.markdown("<hr style='border:none;border-top:1.5px solid #e2e8f0;margin:8px 0 20px;'>", unsafe_allow_html=True)
 
 # ─── Pipeline ───────────────────────────────────────────────────────────────────
 if run_btn:
