@@ -1323,39 +1323,67 @@ with tab_chat:
                 st.session_state.ai_chat_history = []
                 st.rerun()
 
-    # ── Scrollable Chat History Container ──
-    chat_area = st.container(height=480, border=False)
-    with chat_area:
-        if not st.session_state.ai_chat_history:
-            st.markdown("""
-            <div style="text-align:center;padding:80px 20px;">
-                <div style="font-size:2.5rem;margin-bottom:12px;">🤖</div>
-                <div style="font-size:1rem;font-weight:700;color:#1e1b4b;margin-bottom:6px;">Start a conversation</div>
-                <div style="font-size:0.85rem;color:#64748b;">Ask me anything — I'll give you a clear, structured answer.</div>
-                <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:20px;">
-                    <div style="background:#f0f4ff;border:1px solid #c7d2fe;border-radius:100px;padding:6px 14px;font-size:0.78rem;color:#4338ca;">💡 Explain machine learning</div>
-                    <div style="background:#f0f4ff;border:1px solid #c7d2fe;border-radius:100px;padding:6px 14px;font-size:0.78rem;color:#4338ca;">📊 What is RAG?</div>
-                    <div style="background:#f0f4ff;border:1px solid #c7d2fe;border-radius:100px;padding:6px 14px;font-size:0.78rem;color:#4338ca;">🚀 How does LangChain work?</div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        else:
+    # We determine if we need to run a query from either text input or suggestion click
+    query_to_run = ""
+
+    # ── CASE 1: Empty state (Search Engine Homepage style) ──
+    if not st.session_state.ai_chat_history:
+        st.markdown("""
+        <div style="text-align:center;padding:50px 20px 20px;">
+            <div style="font-size:2.5rem;margin-bottom:12px;">🤖</div>
+            <div style="font-size:1.15rem;font-weight:700;color:#1e1b4b;margin-bottom:6px;">Start a conversation</div>
+            <div style="font-size:0.88rem;color:#64748b;margin-bottom:20px;">Ask me anything — I'll give you a clear, structured answer.</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Centered Search Bar
+        search_input = st.text_input(
+            "Search Input",
+            placeholder="Type your question here and hit Enter...",
+            label_visibility="collapsed",
+            key="center_search_input"
+        )
+        if search_input.strip():
+            query_to_run = search_input.strip()
+
+        # Suggestion chips BELOW the search bar
+        st.markdown("""
+        <div style="text-align:center;margin-top:12px;margin-bottom:8px;font-size:0.78rem;font-weight:600;color:#94a3b8;">
+            POPULAR SUGGESTIONS
+        </div>
+        """, unsafe_allow_html=True)
+        col_s1, col_s2, col_s3 = st.columns(3)
+        with col_s1:
+            if st.button("💡 Explain machine learning", use_container_width=True, key="sug_ml"):
+                query_to_run = "Explain machine learning in simple terms."
+        with col_s2:
+            if st.button("📊 What is RAG?", use_container_width=True, key="sug_rag"):
+                query_to_run = "What is Retrieval-Augmented Generation (RAG)?"
+        with col_s3:
+            if st.button("🚀 How does LangChain work?", use_container_width=True, key="sug_lc"):
+                query_to_run = "How does LangChain orchestrate LLM pipelines?"
+
+    # ── CASE 2: Active conversation state (Chat Messenger style) ──
+    else:
+        chat_area = st.container(height=480, border=False)
+        with chat_area:
             for msg in st.session_state.ai_chat_history:
                 with st.chat_message(msg["role"]):
                     st.markdown(msg["content"], unsafe_allow_html=True)
 
-    # ── Native bottom-pinned Chat Input ──
-    # st.chat_input places the input box beautifully at the bottom of the page
-    ai_question = st.chat_input("Type your message here...", key="ai_chat_input_val")
-    
-    if ai_question and ai_question.strip():
+        # Native bottom-pinned Chat Input for continuing conversation
+        ai_question = st.chat_input("Type your message here...", key="ai_chat_input_val")
+        if ai_question and ai_question.strip():
+            query_to_run = ai_question.strip()
+
+    # ── Query execution logic ──
+    if query_to_run:
         from langchain_core.prompts import ChatPromptTemplate
         from langchain_core.output_parsers import StrOutputParser
         from core.llm_router import get_llm, DEFAULT_MODEL
         import re as _re
 
-        user_q = ai_question.strip()
-        st.session_state.ai_chat_history.append({"role": "user", "content": user_q})
+        st.session_state.ai_chat_history.append({"role": "user", "content": query_to_run})
         active_model = st.session_state.get("active_model", DEFAULT_MODEL)
 
         with st.spinner("Thinking..."):
@@ -1373,7 +1401,7 @@ with tab_chat:
                     ("human", "{question}"),
                 ])
                 chain = prompt | llm | StrOutputParser()
-                answer = chain.invoke({"question": user_q})
+                answer = chain.invoke({"question": query_to_run})
                 
                 # Format response nicely
                 answer_html = _re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", answer)
