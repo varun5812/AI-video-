@@ -1051,6 +1051,36 @@ h1, h2, h3, h4, h5, h6 {
     .flow-container { flex-direction: column; }
     .flow-arrow { transform: rotate(90deg); }
 }
+
+/* Modern segmented control tabs */
+div[data-baseweb="tab-list"] {
+    gap: 8px !important;
+    justify-content: center !important;
+    background-color: #f1f5f9 !important;
+    padding: 5px !important;
+    border-radius: 12px !important;
+    border: 1px solid #e2e8f0 !important;
+    max-width: 280px !important;
+    margin: 1.5rem auto 1rem !important;
+}
+div[data-baseweb="tab"] {
+    background-color: transparent !important;
+    border: none !important;
+    border-radius: 8px !important;
+    padding: 6px 18px !important;
+    color: #64748b !important;
+    font-weight: 700 !important;
+    font-size: 0.88rem !important;
+    transition: all 0.2s ease !important;
+}
+div[data-baseweb="tab"][aria-selected="true"] {
+    background-color: #ffffff !important;
+    color: #6366f1 !important;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.1) !important;
+}
+div[data-baseweb="tab-border-line"] {
+    display: none !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -1271,31 +1301,34 @@ with tab_video:
         """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════════
-# TAB 2 — AI CHAT (fully separate, persistent conversation)
+# TAB 2 — AI CHAT (Separate & Persistent general assistant)
 # ══════════════════════════════════════════════════════════════════════════════════
 with tab_chat:
-    # Header
-    st.markdown("""
-    <div style="background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);
-        border-radius:16px;padding:18px 22px;margin-bottom:16px;">
-        <div style="display:flex;align-items:center;gap:12px;">
-            <div style="font-size:28px;">💬</div>
+    # Header with floating clear button
+    hc1, hc2 = st.columns([5, 1.2])
+    with hc1:
+        st.markdown("""
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+            <div style="font-size:24px;">💬</div>
             <div>
-                <div style="font-size:1.15rem;font-weight:800;color:white;">AI Chat Assistant</div>
-                <div style="font-size:0.78rem;color:rgba(255,255,255,0.75);margin-top:2px;">
-                    Ask anything — conversation is saved as you go
-                </div>
+                <div style="font-size:1.05rem;font-weight:800;color:#1e1b4b;">AI Chat Assistant</div>
+                <div style="font-size:0.75rem;color:#6366f1;font-weight:500;">Ask general questions to your selected model</div>
             </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
+    with hc2:
+        # Floating clear button at top right
+        if st.session_state.ai_chat_history:
+            if st.button("🗑️ Clear Chat", key="ai_clear_chat", use_container_width=True, type="secondary"):
+                st.session_state.ai_chat_history = []
+                st.rerun()
 
-    # ── Message history (scrollable area) ──
-    chat_area = st.container(height=420, border=False)
+    # ── Scrollable Chat History Container ──
+    chat_area = st.container(height=480, border=False)
     with chat_area:
         if not st.session_state.ai_chat_history:
             st.markdown("""
-            <div style="text-align:center;padding:60px 20px;">
+            <div style="text-align:center;padding:80px 20px;">
                 <div style="font-size:2.5rem;margin-bottom:12px;">🤖</div>
                 <div style="font-size:1rem;font-weight:700;color:#1e1b4b;margin-bottom:6px;">Start a conversation</div>
                 <div style="font-size:0.85rem;color:#64748b;">Ask me anything — I'll give you a clear, structured answer.</div>
@@ -1308,51 +1341,14 @@ with tab_chat:
             """, unsafe_allow_html=True)
         else:
             for msg in st.session_state.ai_chat_history:
-                if msg["role"] == "user":
-                    st.markdown(f"""
-                    <div style="display:flex;justify-content:flex-end;margin:6px 0;">
-                        <div style="background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;
-                            padding:11px 16px;border-radius:18px 18px 4px 18px;max-width:75%;
-                            font-size:0.88rem;line-height:1.55;box-shadow:0 2px 8px rgba(99,102,241,0.22);">
-                            {msg['content']}
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    st.markdown(f"""
-                    <div style="display:flex;justify-content:flex-start;margin:6px 0;gap:8px;align-items:flex-end;">
-                        <div style="width:28px;height:28px;background:linear-gradient(135deg,#e0e7ff,#c7d2fe);
-                            border-radius:50%;display:flex;align-items:center;justify-content:center;
-                            font-size:14px;flex-shrink:0;">🤖</div>
-                        <div style="background:white;border:1.5px solid #e0e7ff;
-                            padding:12px 16px;border-radius:18px 18px 18px 4px;max-width:78%;
-                            font-size:0.88rem;line-height:1.65;box-shadow:0 2px 10px rgba(0,0,0,0.05);">
-                            {msg['content']}
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                with st.chat_message(msg["role"]):
+                    st.markdown(msg["content"], unsafe_allow_html=True)
 
-    # ── Input bar ──
-    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-    inp_col, btn_col, clr_col = st.columns([6, 1, 1])
-    with inp_col:
-        ai_question = st.text_input(
-            "Message",
-            placeholder="Type your message here...",
-            label_visibility="collapsed",
-            key="ai_chat_input"
-        )
-    with btn_col:
-        ai_send = st.button("Send ➤", use_container_width=True, key="ai_chat_send")
-    with clr_col:
-        ai_clear = st.button("🗑️", use_container_width=True, key="ai_clear_chat",
-                             help="Clear conversation")
-
-    if ai_clear and st.session_state.ai_chat_history:
-        st.session_state.ai_chat_history = []
-        st.rerun()
-
-    if ai_send and ai_question.strip():
+    # ── Native bottom-pinned Chat Input ──
+    # st.chat_input places the input box beautifully at the bottom of the page
+    ai_question = st.chat_input("Type your message here...", key="ai_chat_input_val")
+    
+    if ai_question and ai_question.strip():
         from langchain_core.prompts import ChatPromptTemplate
         from langchain_core.output_parsers import StrOutputParser
         from core.llm_router import get_llm, DEFAULT_MODEL
@@ -1378,6 +1374,8 @@ with tab_chat:
                 ])
                 chain = prompt | llm | StrOutputParser()
                 answer = chain.invoke({"question": user_q})
+                
+                # Format response nicely
                 answer_html = _re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", answer)
                 answer_html = answer_html.replace("\n", "<br>")
                 st.session_state.ai_chat_history.append({"role": "assistant", "content": answer_html})
