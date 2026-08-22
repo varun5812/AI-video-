@@ -1219,471 +1219,518 @@ with st.sidebar:
 # ─── Main Content — Centered ────────────────────────────────────────────────────
 st.markdown('<div class="main-wrapper">', unsafe_allow_html=True)
 
-# Hero
-st.markdown("""
-<div class="hero">
-    <div class="hero-icon-wrap">🎬</div>
-    <h1>What video do you want<br><span class="hero-gradient-text">to understand today?</span></h1>
-    <div class="hero-sub">
-        Drop a YouTube URL, upload a media file, or paste a transcript — AI will extract insights, summaries, action items, and let you chat with the content.
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-# ─── AI Chat (always available) ─────────────────────────────────────────────────
+# ─── Session state init ──────────────────────────────────────────────────────────
 if "ai_chat_history" not in st.session_state:
     st.session_state.ai_chat_history = []
 
-with st.container():
-    st.markdown("""
-    <div style="
-        background: linear-gradient(135deg, #f0f4ff 0%, #faf5ff 100%);
-        border: 1.5px solid #e0e7ff;
-        border-radius: 20px;
-        padding: 28px 32px 20px;
-        margin: 8px 0 28px 0;
-        box-shadow: 0 4px 24px rgba(99,102,241,0.08);
-    ">
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">
-            <div style="background:linear-gradient(135deg,#6366f1,#8b5cf6);width:40px;height:40px;
-                border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;">
-                💬
+# Persist model across reruns
+st.session_state["active_model"] = selected_model
+
+# ─── Two main tabs ───────────────────────────────────────────────────────────────
+tab_video, tab_chat = st.tabs(["🎬  Video AI", "💬  AI Chat"])
+
+# ══════════════════════════════════════════════════════════════════════════════════
+# TAB 1 — VIDEO AI
+# ══════════════════════════════════════════════════════════════════════════════════
+with tab_video:
+    # Hero
+    if not st.session_state.pipeline_done:
+        st.markdown("""
+        <div class="hero">
+            <div class="hero-icon-wrap">🎬</div>
+            <h1>What video do you want<br><span class="hero-gradient-text">to understand today?</span></h1>
+            <div class="hero-sub">
+                Drop a YouTube URL, upload a media file, or paste a transcript — AI extracts summaries, action items, decisions and lets you chat with the content.
             </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # How it works
+        st.markdown("""
+        <div style="display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;margin:0 0 24px;">
+            <div style="background:#f0f4ff;border:1px solid #c7d2fe;border-radius:12px;padding:10px 16px;text-align:center;min-width:100px;">
+                <div style="font-size:1.4rem;">🎥</div>
+                <div style="font-size:0.72rem;font-weight:700;color:#4338ca;margin-top:4px;">Paste URL</div>
+            </div>
+            <div style="color:#94a3b8;font-size:1rem;">→</div>
+            <div style="background:#f0f4ff;border:1px solid #c7d2fe;border-radius:12px;padding:10px 16px;text-align:center;min-width:100px;">
+                <div style="font-size:1.4rem;">📝</div>
+                <div style="font-size:0.72rem;font-weight:700;color:#4338ca;margin-top:4px;">Transcribe</div>
+            </div>
+            <div style="color:#94a3b8;font-size:1rem;">→</div>
+            <div style="background:#f0f4ff;border:1px solid #c7d2fe;border-radius:12px;padding:10px 16px;text-align:center;min-width:100px;">
+                <div style="font-size:1.4rem;">🧠</div>
+                <div style="font-size:0.72rem;font-weight:700;color:#4338ca;margin-top:4px;">Analyse</div>
+            </div>
+            <div style="color:#94a3b8;font-size:1rem;">→</div>
+            <div style="background:#f0f4ff;border:1px solid #c7d2fe;border-radius:12px;padding:10px 16px;text-align:center;min-width:100px;">
+                <div style="font-size:1.4rem;">💬</div>
+                <div style="font-size:0.72rem;font-weight:700;color:#4338ca;margin-top:4px;">Chat</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════════════════════════
+# TAB 2 — AI CHAT (fully separate, persistent conversation)
+# ══════════════════════════════════════════════════════════════════════════════════
+with tab_chat:
+    # Header
+    st.markdown("""
+    <div style="background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);
+        border-radius:16px;padding:18px 22px;margin-bottom:16px;">
+        <div style="display:flex;align-items:center;gap:12px;">
+            <div style="font-size:28px;">💬</div>
             <div>
-                <div style="font-size:1.1rem;font-weight:800;color:#1e1b4b;">AI Chat Assistant</div>
-                <div style="font-size:0.78rem;color:#6366f1;font-weight:500;">Ask anything — get a structured answer instantly</div>
+                <div style="font-size:1.15rem;font-weight:800;color:white;">AI Chat Assistant</div>
+                <div style="font-size:0.78rem;color:rgba(255,255,255,0.75);margin-top:2px;">
+                    Ask anything — conversation is saved as you go
+                </div>
             </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # Chat history display
-    chat_container = st.container()
-    with chat_container:
-        for msg in st.session_state.ai_chat_history:
-            if msg["role"] == "user":
-                st.markdown(f"""
-                <div style="display:flex;justify-content:flex-end;margin:8px 0;">
-                    <div style="background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;
-                        padding:12px 18px;border-radius:18px 18px 4px 18px;max-width:75%;
-                        font-size:0.9rem;line-height:1.5;box-shadow:0 2px 8px rgba(99,102,241,0.25);">
-                        {msg['content']}
-                    </div>
+    # ── Message history (scrollable area) ──
+    chat_area = st.container(height=420, border=False)
+    with chat_area:
+        if not st.session_state.ai_chat_history:
+            st.markdown("""
+            <div style="text-align:center;padding:60px 20px;">
+                <div style="font-size:2.5rem;margin-bottom:12px;">🤖</div>
+                <div style="font-size:1rem;font-weight:700;color:#1e1b4b;margin-bottom:6px;">Start a conversation</div>
+                <div style="font-size:0.85rem;color:#64748b;">Ask me anything — I'll give you a clear, structured answer.</div>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:20px;">
+                    <div style="background:#f0f4ff;border:1px solid #c7d2fe;border-radius:100px;padding:6px 14px;font-size:0.78rem;color:#4338ca;">💡 Explain machine learning</div>
+                    <div style="background:#f0f4ff;border:1px solid #c7d2fe;border-radius:100px;padding:6px 14px;font-size:0.78rem;color:#4338ca;">📊 What is RAG?</div>
+                    <div style="background:#f0f4ff;border:1px solid #c7d2fe;border-radius:100px;padding:6px 14px;font-size:0.78rem;color:#4338ca;">🚀 How does LangChain work?</div>
                 </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"""
-                <div style="display:flex;justify-content:flex-start;margin:8px 0;">
-                    <div style="background:white;border:1.5px solid #e0e7ff;
-                        padding:14px 18px;border-radius:18px 18px 18px 4px;max-width:80%;
-                        font-size:0.9rem;line-height:1.6;box-shadow:0 2px 12px rgba(0,0,0,0.06);">
-                        {msg['content']}
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            for msg in st.session_state.ai_chat_history:
+                if msg["role"] == "user":
+                    st.markdown(f"""
+                    <div style="display:flex;justify-content:flex-end;margin:6px 0;">
+                        <div style="background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;
+                            padding:11px 16px;border-radius:18px 18px 4px 18px;max-width:75%;
+                            font-size:0.88rem;line-height:1.55;box-shadow:0 2px 8px rgba(99,102,241,0.22);">
+                            {msg['content']}
+                        </div>
                     </div>
-                </div>
-                """, unsafe_allow_html=True)
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                    <div style="display:flex;justify-content:flex-start;margin:6px 0;gap:8px;align-items:flex-end;">
+                        <div style="width:28px;height:28px;background:linear-gradient(135deg,#e0e7ff,#c7d2fe);
+                            border-radius:50%;display:flex;align-items:center;justify-content:center;
+                            font-size:14px;flex-shrink:0;">🤖</div>
+                        <div style="background:white;border:1.5px solid #e0e7ff;
+                            padding:12px 16px;border-radius:18px 18px 18px 4px;max-width:78%;
+                            font-size:0.88rem;line-height:1.65;box-shadow:0 2px 10px rgba(0,0,0,0.05);">
+                            {msg['content']}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
-    # Input row
-    ai_col1, ai_col2 = st.columns([5, 1])
-    with ai_col1:
+    # ── Input bar ──
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    inp_col, btn_col, clr_col = st.columns([6, 1, 1])
+    with inp_col:
         ai_question = st.text_input(
-            "Ask AI anything",
-            placeholder="e.g. Explain machine learning in simple terms...",
+            "Message",
+            placeholder="Type your message here...",
             label_visibility="collapsed",
             key="ai_chat_input"
         )
-    with ai_col2:
+    with btn_col:
         ai_send = st.button("Send ➤", use_container_width=True, key="ai_chat_send")
+    with clr_col:
+        ai_clear = st.button("🗑️", use_container_width=True, key="ai_clear_chat",
+                             help="Clear conversation")
 
-    # Persist the chosen model across reruns
-    st.session_state["active_model"] = selected_model
+    if ai_clear and st.session_state.ai_chat_history:
+        st.session_state.ai_chat_history = []
+        st.rerun()
 
     if ai_send and ai_question.strip():
         from langchain_core.prompts import ChatPromptTemplate
         from langchain_core.output_parsers import StrOutputParser
         from core.llm_router import get_llm, DEFAULT_MODEL
+        import re as _re
 
         user_q = ai_question.strip()
         st.session_state.ai_chat_history.append({"role": "user", "content": user_q})
-        # Use the model that was active when user clicked Send
         active_model = st.session_state.get("active_model", DEFAULT_MODEL)
 
-        with st.spinner("AI is thinking..."):
+        with st.spinner("Thinking..."):
             try:
                 llm = get_llm(active_model)
                 prompt = ChatPromptTemplate.from_messages([
                     ("system",
                      "You are a helpful, knowledgeable AI assistant. "
-                     "Always respond in a clear, structured way using:\n"
-                     "- Short paragraphs or bullet points\n"
-                     "- Bold key terms where relevant\n"
-                     "- A concise answer first, then explanation\n"
+                     "Always respond in a clear, structured way:\n"
+                     "- Start with a direct concise answer\n"
+                     "- Use bullet points or numbered lists for multi-part answers\n"
+                     "- Use **bold** to highlight key terms\n"
+                     "- Keep paragraphs short and scannable\n"
                      "Be friendly, precise and professional."),
                     ("human", "{question}"),
                 ])
                 chain = prompt | llm | StrOutputParser()
                 answer = chain.invoke({"question": user_q})
-                # Convert markdown-style bold to HTML for chat bubbles
-                import re as _re
                 answer_html = _re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", answer)
                 answer_html = answer_html.replace("\n", "<br>")
                 st.session_state.ai_chat_history.append({"role": "assistant", "content": answer_html})
             except Exception as e:
                 st.session_state.ai_chat_history.append({
                     "role": "assistant",
-                    "content": f"⚠️ Error: {str(e)}"
+                    "content": f"⚠️ {str(e)}"
                 })
         st.rerun()
 
-    # Clear chat button
-    if st.session_state.ai_chat_history:
-        if st.button("🗑️ Clear Chat", key="ai_clear_chat"):
-            st.session_state.ai_chat_history = []
-            st.rerun()
-
-st.markdown("<hr style='border:none;border-top:1.5px solid #e2e8f0;margin:8px 0 20px;'>", unsafe_allow_html=True)
-
-# ─── Pipeline ───────────────────────────────────────────────────────────────────
-if run_btn:
-    pasted_transcript = (pasted_transcript or "").strip()
-    if not source.strip() and uploaded_media is None and not pasted_transcript:
-        st.error("Please enter a YouTube URL, upload a media file, or paste a transcript.")
-    else:
-        groq_key = os.getenv("GROQ_API_KEY", "").strip()
-        if not groq_key or groq_key == "GROQ_API_KEY" or len(groq_key) < 10:
-            st.error(
-                "🔑 **GROQ_API_KEY is missing or invalid.** "
-                "Please set your Groq API key in the platform's environment/secrets, "
-                "or in the local `.env` file. Get a free key at https://console.groq.com"
-            )
+with tab_video:
+    # ─── Pipeline ───────────────────────────────────────────────────────────────────
+    if run_btn:
+        pasted_transcript = (pasted_transcript or "").strip()
+        if not source.strip() and uploaded_media is None and not pasted_transcript:
+            st.error("Please enter a YouTube URL, upload a media file, or paste a transcript.")
         else:
-            st.session_state.pipeline_done = False
-            st.session_state.result = None
-            st.session_state.chat_history = []
-            st.session_state.pipeline_steps = {}
+            groq_key = os.getenv("GROQ_API_KEY", "").strip()
+            if not groq_key or groq_key == "GROQ_API_KEY" or len(groq_key) < 10:
+                st.error(
+                    "🔑 **GROQ_API_KEY is missing or invalid.** "
+                    "Please set your Groq API key in the platform's environment/secrets, "
+                    "or in the local `.env` file. Get a free key at https://console.groq.com"
+                )
+            else:
+                st.session_state.pipeline_done = False
+                st.session_state.result = None
+                st.session_state.chat_history = []
+                st.session_state.pipeline_steps = {}
 
-            progress_placeholder = st.empty()
+                progress_placeholder = st.empty()
 
-            def update_step(key, state):
-                st.session_state.pipeline_steps[key] = state
+                def update_step(key, state):
+                    st.session_state.pipeline_steps[key] = state
 
-            try:
-                source_to_process = source.strip()
-                is_youtube = source_to_process.startswith("http") and ("youtu" in source_to_process)
-                transcript = pasted_transcript or None
-
-                if transcript:
-                    # User pasted a transcript directly
-                    render_loading(20, "📝", "Using pasted transcript", progress_placeholder)
-                    update_step("audio", "done")
-                    update_step("transcript", "done")
-
-                elif uploaded_media is not None:
-                    # User uploaded an audio/video file → Groq Whisper
-                    render_loading(5, "🔊", "Processing uploaded file", progress_placeholder)
-                    update_step("audio", "active")
-                    saved_path = save_uploaded_media(uploaded_media)
-                    chunks = process_uploaded_file(saved_path)
-                    update_step("audio", "done")
-
-                    render_loading(20, "📝", "Transcribing audio with Groq Whisper", progress_placeholder)
-                    update_step("transcript", "active")
-                    transcript = transcribe_all(chunks, language)
-                    update_step("transcript", "done")
-
-                elif is_youtube:
-                    # YouTube URL → try caption strategies 1-3 (no audio download)
-                    render_loading(5, "📝", "Fetching YouTube captions", progress_placeholder)
-                    update_step("audio", "active")
-                    update_step("transcript", "active")
-                    transcript = get_youtube_transcript(source_to_process)
-
-                    if not transcript:
-                        render_loading(12, "📝", "Extracting subtitles from video metadata", progress_placeholder)
-                        transcript = get_subtitles_via_extract_info(source_to_process)
-
-                    if not transcript:
-                        render_loading(18, "📝", "Trying subtitle file download", progress_placeholder)
-                        transcript = get_youtube_subtitles_ytdlp(source_to_process)
+                try:
+                    source_to_process = source.strip()
+                    is_youtube = source_to_process.startswith("http") and ("youtu" in source_to_process)
+                    transcript = pasted_transcript or None
 
                     if transcript:
+                        # User pasted a transcript directly
+                        render_loading(20, "📝", "Using pasted transcript", progress_placeholder)
                         update_step("audio", "done")
                         update_step("transcript", "done")
+
+                    elif uploaded_media is not None:
+                        # User uploaded an audio/video file → Groq Whisper
+                        render_loading(5, "🔊", "Processing uploaded file", progress_placeholder)
+                        update_step("audio", "active")
+                        saved_path = save_uploaded_media(uploaded_media)
+                        chunks = process_uploaded_file(saved_path)
+                        update_step("audio", "done")
+
+                        render_loading(20, "📝", "Transcribing audio with Groq Whisper", progress_placeholder)
+                        update_step("transcript", "active")
+                        transcript = transcribe_all(chunks, language)
+                        update_step("transcript", "done")
+
+                    elif is_youtube:
+                        # YouTube URL → try caption strategies 1-3 (no audio download)
+                        render_loading(5, "📝", "Fetching YouTube captions", progress_placeholder)
+                        update_step("audio", "active")
+                        update_step("transcript", "active")
+                        transcript = get_youtube_transcript(source_to_process)
+
+                        if not transcript:
+                            render_loading(12, "📝", "Extracting subtitles from video metadata", progress_placeholder)
+                            transcript = get_subtitles_via_extract_info(source_to_process)
+
+                        if not transcript:
+                            render_loading(18, "📝", "Trying subtitle file download", progress_placeholder)
+                            transcript = get_youtube_subtitles_ytdlp(source_to_process)
+
+                        if transcript:
+                            update_step("audio", "done")
+                            update_step("transcript", "done")
+                        else:
+                            raise RuntimeError(
+                                "Could not fetch captions for this video. "
+                                "This video may not have captions, or YouTube is blocking this server. "
+                                "Please upload the audio/video file or paste the transcript instead."
+                            )
                     else:
-                        raise RuntimeError(
-                            "Could not fetch captions for this video. "
-                            "This video may not have captions, or YouTube is blocking this server. "
-                            "Please upload the audio/video file or paste the transcript instead."
+                        st.error("Please enter a valid YouTube URL, upload a file, or paste a transcript.")
+                        st.stop()
+
+                    # Step: Title generation
+                    render_loading(40, "🏷️", "Generating title", progress_placeholder)
+                    update_step("title", "active")
+                    title = generate_title(transcript, language, selected_model)
+                    update_step("title", "done")
+
+                    # Step: Summarization
+                    render_loading(55, "📋", "Creating intelligent summary", progress_placeholder)
+                    update_step("summary", "active")
+                    summary = summarize(transcript, language, selected_model)
+                    update_step("summary", "done")
+
+                    # Step: Insight extraction
+                    render_loading(70, "🔍", "Extracting insights & action items", progress_placeholder)
+                    update_step("extract", "active")
+                    insights = extract_all_insights(transcript, language, selected_model)
+                    action_items = insights["action_items"]
+                    decisions    = insights["key_decisions"]
+                    questions    = insights["open_questions"]
+                    update_step("extract", "done")
+
+                    # Step: RAG engine
+                    render_loading(90, "🧠", "Building knowledge engine", progress_placeholder)
+                    update_step("rag", "active")
+                    rag_chain = build_rag_chain(transcript, language, selected_model)
+                    update_step("rag", "done")
+
+                    st.session_state.result = {
+                        "title": title,
+                        "transcript": transcript,
+                        "summary": summary,
+                        "action_items": action_items,
+                        "key_decisions": decisions,
+                        "open_questions": questions,
+                        "rag_chain": rag_chain,
+                    }
+                    st.session_state.pipeline_done = True
+
+                    st.session_state.analysis_history.append({
+                        "title": title[:50],
+                        "words": count_words(transcript),
+                    })
+
+                    render_loading(100, "✅", "Analysis complete!", progress_placeholder)
+                    time.sleep(0.8)
+                    progress_placeholder.empty()
+                    st.rerun()
+
+                except Exception as e:
+                    for k in ["audio","transcript","title","summary","extract","rag"]:
+                        if st.session_state.pipeline_steps.get(k) == "active":
+                            st.session_state.pipeline_steps[k] = "pending"
+
+                    error_msg = str(e)
+                    if "rate_limit" in error_msg or "429" in error_msg or "tokens per minute" in error_msg.lower():
+                        progress_placeholder.error(
+                            "⏳ **Rate limit reached.** Please wait 1-2 minutes and try again, or try a shorter video."
                         )
-                else:
-                    st.error("Please enter a valid YouTube URL, upload a file, or paste a transcript.")
-                    st.stop()
+                    elif "413" in error_msg or "Request too large" in error_msg:
+                        progress_placeholder.error(
+                            "📏 **File too large for free tier.** Please try a shorter video (under 5 minutes)."
+                        )
+                    elif ("GROQ_API_KEY" in error_msg or "api_key" in error_msg.lower()) and "yt-dlp" not in error_msg.lower():
+                        progress_placeholder.error(
+                            "🔑 **GROQ_API_KEY is missing or invalid.** "
+                            "Set it in your platform's environment/secrets, or in the `.env` file."
+                        )
+                    elif "Could not fetch" in error_msg or "captions" in error_msg.lower():
+                        progress_placeholder.error(
+                            f"📝 **Transcript Error:** {e}\n\n"
+                            "Try a video with captions enabled, upload the media file directly, or paste the transcript."
+                        )
+                    else:
+                        progress_placeholder.error(f"❌ Error: {e}")
 
-                # Step: Title generation
-                render_loading(40, "🏷️", "Generating title", progress_placeholder)
-                update_step("title", "active")
-                title = generate_title(transcript, language, selected_model)
-                update_step("title", "done")
+    # ─── Results ────────────────────────────────────────────────────────────────────
+    if st.session_state.result:
+        r = st.session_state.result
 
-                # Step: Summarization
-                render_loading(55, "📋", "Creating intelligent summary", progress_placeholder)
-                update_step("summary", "active")
-                summary = summarize(transcript, language, selected_model)
-                update_step("summary", "done")
+        st.markdown("---")
 
-                # Step: Insight extraction
-                render_loading(70, "🔍", "Extracting insights & action items", progress_placeholder)
-                update_step("extract", "active")
-                insights = extract_all_insights(transcript, language, selected_model)
-                action_items = insights["action_items"]
-                decisions    = insights["key_decisions"]
-                questions    = insights["open_questions"]
-                update_step("extract", "done")
-
-                # Step: RAG engine
-                render_loading(90, "🧠", "Building knowledge engine", progress_placeholder)
-                update_step("rag", "active")
-                rag_chain = build_rag_chain(transcript, language, selected_model)
-                update_step("rag", "done")
-
-                st.session_state.result = {
-                    "title": title,
-                    "transcript": transcript,
-                    "summary": summary,
-                    "action_items": action_items,
-                    "key_decisions": decisions,
-                    "open_questions": questions,
-                    "rag_chain": rag_chain,
-                }
-                st.session_state.pipeline_done = True
-
-                st.session_state.analysis_history.append({
-                    "title": title[:50],
-                    "words": count_words(transcript),
-                })
-
-                render_loading(100, "✅", "Analysis complete!", progress_placeholder)
-                time.sleep(0.8)
-                progress_placeholder.empty()
-                st.rerun()
-
-            except Exception as e:
-                for k in ["audio","transcript","title","summary","extract","rag"]:
-                    if st.session_state.pipeline_steps.get(k) == "active":
-                        st.session_state.pipeline_steps[k] = "pending"
-
-                error_msg = str(e)
-                if "rate_limit" in error_msg or "429" in error_msg or "tokens per minute" in error_msg.lower():
-                    progress_placeholder.error(
-                        "⏳ **Rate limit reached.** Please wait 1-2 minutes and try again, or try a shorter video."
-                    )
-                elif "413" in error_msg or "Request too large" in error_msg:
-                    progress_placeholder.error(
-                        "📏 **File too large for free tier.** Please try a shorter video (under 5 minutes)."
-                    )
-                elif ("GROQ_API_KEY" in error_msg or "api_key" in error_msg.lower()) and "yt-dlp" not in error_msg.lower():
-                    progress_placeholder.error(
-                        "🔑 **GROQ_API_KEY is missing or invalid.** "
-                        "Set it in your platform's environment/secrets, or in the `.env` file."
-                    )
-                elif "Could not fetch" in error_msg or "captions" in error_msg.lower():
-                    progress_placeholder.error(
-                        f"📝 **Transcript Error:** {e}\n\n"
-                        "Try a video with captions enabled, upload the media file directly, or paste the transcript."
-                    )
-                else:
-                    progress_placeholder.error(f"❌ Error: {e}")
-
-# ─── Results ────────────────────────────────────────────────────────────────────
-if st.session_state.result:
-    r = st.session_state.result
-    
-    st.markdown("---")
-
-    # Title Banner
-    st.markdown(f"""
-    <div class="res-title">
-        <div class="res-title-icon">📌</div>
-        <div>
-            <div class="res-title-text">{r['title']}</div>
-            <div class="res-title-sub">AI-generated meeting title</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Metrics
-    wc = count_words(r['transcript'])
-    dur = max(1, wc // 150)
-    sents = len([s for s in r['transcript'].split('.') if s.strip()])
-    st.markdown(f"""
-    <div class="metric-strip">
-        <div class="metric-box">
-            <div class="metric-num">{wc:,}</div>
-            <div class="metric-lbl">Words</div>
-        </div>
-        <div class="metric-box">
-            <div class="metric-num">~{dur} min</div>
-            <div class="metric-lbl">Duration</div>
-        </div>
-        <div class="metric-box">
-            <div class="metric-num">{sents}</div>
-            <div class="metric-lbl">Sentences</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Summary + Chat
-    col1, col2 = st.columns([1.1, 1], gap="large")
-
-    with col1:
+        # Title Banner
         st.markdown(f"""
-        <div class="g-card">
-            <div class="g-card-head">
-                <div class="g-card-icon purple">📋</div>
-                <div class="g-card-label">Summary</div>
+        <div class="res-title">
+            <div class="res-title-icon">📌</div>
+            <div>
+                <div class="res-title-text">{r['title']}</div>
+                <div class="res-title-sub">AI-generated meeting title</div>
             </div>
-            <div class="g-card-body">{r['summary']}</div>
         </div>
         """, unsafe_allow_html=True)
 
-        st.markdown("<div style='height: 1rem;'></div>", unsafe_allow_html=True)
-        with st.expander("📝 Full Transcript", expanded=False):
-            st.markdown(f'<div class="transcript-box">{r["transcript"]}</div>', unsafe_allow_html=True)
+        # Metrics
+        wc = count_words(r['transcript'])
+        dur = max(1, wc // 150)
+        sents = len([s for s in r['transcript'].split('.') if s.strip()])
+        st.markdown(f"""
+        <div class="metric-strip">
+            <div class="metric-box">
+                <div class="metric-num">{wc:,}</div>
+                <div class="metric-lbl">Words</div>
+            </div>
+            <div class="metric-box">
+                <div class="metric-num">~{dur} min</div>
+                <div class="metric-lbl">Duration</div>
+            </div>
+            <div class="metric-box">
+                <div class="metric-num">{sents}</div>
+                <div class="metric-lbl">Sentences</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    with col2:
-        # ─── Chat ────────────────────────────────────────────
+        # Summary + Chat
+        col1, col2 = st.columns([1.1, 1], gap="large")
+
+        with col1:
+            st.markdown(f"""
+            <div class="g-card">
+                <div class="g-card-head">
+                    <div class="g-card-icon purple">📋</div>
+                    <div class="g-card-label">Summary</div>
+                </div>
+                <div class="g-card-body">{r['summary']}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.markdown("<div style='height: 1rem;'></div>", unsafe_allow_html=True)
+            with st.expander("📝 Full Transcript", expanded=False):
+                st.markdown(f'<div class="transcript-box">{r["transcript"]}</div>', unsafe_allow_html=True)
+
+        with col2:
+            # ─── Chat ────────────────────────────────────────────
+            st.markdown("""
+            <div class="sec-head" style="margin-top: 0;">
+                <span class="sec-title">💬 Chat with Your Meeting</span>
+                <div class="sec-line"></div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            if st.session_state.chat_history:
+                chat_html = '<div class="chat-area" style="max-height: 450px;">'
+                for msg in st.session_state.chat_history:
+                    if msg["role"] == "user":
+                        chat_html += f"""
+                        <div class="chat-msg">
+                            <div class="chat-avatar user">👤</div>
+                            <div class="chat-content">
+                                <div class="chat-name user">You</div>
+                                <div class="chat-text user">{msg['content']}</div>
+                            </div>
+                        </div>"""
+                    else:
+                        chat_html += f"""
+                        <div class="chat-msg">
+                            <div class="chat-avatar bot">🤖</div>
+                            <div class="chat-content">
+                                <div class="chat-name bot">VideoAI</div>
+                                <div class="chat-text bot">{msg['content']}</div>
+                            </div>
+                        </div>"""
+                chat_html += '</div>'
+                st.markdown(chat_html, unsafe_allow_html=True)
+            else:
+                st.markdown("""
+                <div class="g-card chat-empty" style="margin-bottom: 1rem;">
+                    <div class="chat-empty-icon">💬</div>
+                    <div class="chat-empty-text">
+                        Ask anything about your meeting — decisions, action items, or specific topics.
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            cc1, cc2 = st.columns([4, 1], gap="small")
+            with cc1:
+                user_input = st.text_input("Ask", placeholder="What were the main takeaways?", label_visibility="collapsed")
+            with cc2:
+                send_btn = st.button("Send →", use_container_width=True)
+
+            if send_btn and user_input.strip():
+                with st.spinner("🤔 Thinking…"):
+                    answer = ask_question(r["rag_chain"], user_input.strip())
+                st.session_state.chat_history.append({"role": "user", "content": user_input.strip()})
+                st.session_state.chat_history.append({"role": "assistant", "content": answer})
+                st.rerun()
+
+            if st.session_state.chat_history:
+                if st.button("🗑️  Clear Chat", type="secondary"):
+                    st.session_state.chat_history = []
+                    st.rerun()
+
+        # ─── Insights (MOVED BELOW Chat) ────────────────────────────────────────────
         st.markdown("""
-        <div class="sec-head" style="margin-top: 0;">
-            <span class="sec-title">💬 Chat with Your Meeting</span>
+        <div class="sec-head">
+            <span class="sec-title">🔍 Extracted Insights</span>
             <div class="sec-line"></div>
         </div>
         """, unsafe_allow_html=True)
 
-        if st.session_state.chat_history:
-            chat_html = '<div class="chat-area" style="max-height: 450px;">'
-            for msg in st.session_state.chat_history:
-                if msg["role"] == "user":
-                    chat_html += f"""
-                    <div class="chat-msg">
-                        <div class="chat-avatar user">👤</div>
-                        <div class="chat-content">
-                            <div class="chat-name user">You</div>
-                            <div class="chat-text user">{msg['content']}</div>
-                        </div>
-                    </div>"""
-                else:
-                    chat_html += f"""
-                    <div class="chat-msg">
-                        <div class="chat-avatar bot">🤖</div>
-                        <div class="chat-content">
-                            <div class="chat-name bot">VideoAI</div>
-                            <div class="chat-text bot">{msg['content']}</div>
-                        </div>
-                    </div>"""
-            chat_html += '</div>'
-            st.markdown(chat_html, unsafe_allow_html=True)
-        else:
-            st.markdown("""
-            <div class="g-card chat-empty" style="margin-bottom: 1rem;">
-                <div class="chat-empty-icon">💬</div>
-                <div class="chat-empty-text">
-                    Ask anything about your meeting — decisions, action items, or specific topics.
+        c1, c2, c3 = st.columns(3, gap="medium")
+
+        with c1:
+            st.markdown(f"""
+            <div class="g-card">
+                <div class="g-card-head">
+                    <div class="g-card-icon green">✅</div>
+                    <div class="g-card-label">Action Items</div>
                 </div>
+                <div class="g-card-body">{r['action_items']}</div>
             </div>
             """, unsafe_allow_html=True)
 
-        cc1, cc2 = st.columns([4, 1], gap="small")
-        with cc1:
-            user_input = st.text_input("Ask", placeholder="What were the main takeaways?", label_visibility="collapsed")
-        with cc2:
-            send_btn = st.button("Send →", use_container_width=True)
-
-        if send_btn and user_input.strip():
-            with st.spinner("🤔 Thinking…"):
-                answer = ask_question(r["rag_chain"], user_input.strip())
-            st.session_state.chat_history.append({"role": "user", "content": user_input.strip()})
-            st.session_state.chat_history.append({"role": "assistant", "content": answer})
-            st.rerun()
-
-        if st.session_state.chat_history:
-            if st.button("🗑️  Clear Chat", type="secondary"):
-                st.session_state.chat_history = []
-                st.rerun()
-
-    # ─── Insights (MOVED BELOW Chat) ────────────────────────────────────────────
-    st.markdown("""
-    <div class="sec-head">
-        <span class="sec-title">🔍 Extracted Insights</span>
-        <div class="sec-line"></div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    c1, c2, c3 = st.columns(3, gap="medium")
-
-    with c1:
-        st.markdown(f"""
-        <div class="g-card">
-            <div class="g-card-head">
-                <div class="g-card-icon green">✅</div>
-                <div class="g-card-label">Action Items</div>
+        with c2:
+            st.markdown(f"""
+            <div class="g-card">
+                <div class="g-card-head">
+                    <div class="g-card-icon blue">🔑</div>
+                    <div class="g-card-label">Key Decisions</div>
+                </div>
+                <div class="g-card-body">{r['key_decisions']}</div>
             </div>
-            <div class="g-card-body">{r['action_items']}</div>
+            """, unsafe_allow_html=True)
+
+        with c3:
+            st.markdown(f"""
+            <div class="g-card">
+                <div class="g-card-head">
+                    <div class="g-card-icon amber">❓</div>
+                    <div class="g-card-label">Open Questions</div>
+                </div>
+                <div class="g-card-body">{r['open_questions']}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    else:
+        # Empty state — How it works flow
+        st.markdown("""
+        <div class="flow-container">
+            <div class="flow-step">
+                <div class="flow-step-icon purple">🔗</div>
+                <div class="flow-step-label">Paste URL</div>
+            </div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-step">
+                <div class="flow-step-icon blue">🎤</div>
+                <div class="flow-step-label">Transcribe</div>
+            </div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-step">
+                <div class="flow-step-icon green">🧠</div>
+                <div class="flow-step-label">Analyse</div>
+            </div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-step">
+                <div class="flow-step-icon cyan">💬</div>
+                <div class="flow-step-label">Chat</div>
+            </div>
+        </div>
+
+        <div class="cap-row">
+            <div class="cap-chip">📝 Transcription</div>
+            <div class="cap-chip">📋 Summary</div>
+            <div class="cap-chip">✅ Action Items</div>
+            <div class="cap-chip">🔑 Decisions</div>
+            <div class="cap-chip">💬 AI Chat</div>
         </div>
         """, unsafe_allow_html=True)
-
-    with c2:
-        st.markdown(f"""
-        <div class="g-card">
-            <div class="g-card-head">
-                <div class="g-card-icon blue">🔑</div>
-                <div class="g-card-label">Key Decisions</div>
-            </div>
-            <div class="g-card-body">{r['key_decisions']}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with c3:
-        st.markdown(f"""
-        <div class="g-card">
-            <div class="g-card-head">
-                <div class="g-card-icon amber">❓</div>
-                <div class="g-card-label">Open Questions</div>
-            </div>
-            <div class="g-card-body">{r['open_questions']}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-else:
-    # Empty state — How it works flow
-    st.markdown("""
-    <div class="flow-container">
-        <div class="flow-step">
-            <div class="flow-step-icon purple">🔗</div>
-            <div class="flow-step-label">Paste URL</div>
-        </div>
-        <span class="flow-arrow">→</span>
-        <div class="flow-step">
-            <div class="flow-step-icon blue">🎤</div>
-            <div class="flow-step-label">Transcribe</div>
-        </div>
-        <span class="flow-arrow">→</span>
-        <div class="flow-step">
-            <div class="flow-step-icon green">🧠</div>
-            <div class="flow-step-label">Analyse</div>
-        </div>
-        <span class="flow-arrow">→</span>
-        <div class="flow-step">
-            <div class="flow-step-icon cyan">💬</div>
-            <div class="flow-step-label">Chat</div>
-        </div>
-    </div>
-
-    <div class="cap-row">
-        <div class="cap-chip">📝 Transcription</div>
-        <div class="cap-chip">📋 Summary</div>
-        <div class="cap-chip">✅ Action Items</div>
-        <div class="cap-chip">🔑 Decisions</div>
-        <div class="cap-chip">💬 AI Chat</div>
-    </div>
-    """, unsafe_allow_html=True)
 
 st.markdown('</div>', unsafe_allow_html=True)
