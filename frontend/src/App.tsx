@@ -51,6 +51,8 @@ export default function App() {
           activeTab={activeTab} 
           googleKeyOk={googleKeyOk} 
           groqKeyOk={groqKeyOk} 
+          selectedModel={selectedModel}
+          setSelectedModel={setSelectedModel}
         />
 
         {/* Dynamic Workspace Toggle View */}
