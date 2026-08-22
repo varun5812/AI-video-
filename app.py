@@ -1301,66 +1301,142 @@ with tab_video:
         """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════════
-# TAB 2 — AI CHAT (Separate & Persistent general assistant)
+# TAB 2 — AI CHAT (Google Search Homepage Homage Layout)
 # ══════════════════════════════════════════════════════════════════════════════════
 with tab_chat:
-    # Header with floating clear button
-    hc1, hc2 = st.columns([5, 1.2])
-    with hc1:
-        st.markdown("""
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
-            <div style="font-size:24px;">💬</div>
-            <div>
-                <div style="font-size:1.05rem;font-weight:800;color:#1e1b4b;">AI Chat Assistant</div>
-                <div style="font-size:0.75rem;color:#6366f1;font-weight:500;">Ask general questions to your selected model</div>
+    # ── Custom CSS for Google style search input ──
+    st.markdown("""
+    <style>
+    /* Round search bar exactly like Google */
+    div.stTextInput > div[data-baseweb="input"] {
+        border-radius: 100px !important;
+        border: 1px solid #dfe1e5 !important;
+        background-color: #ffffff !important;
+        box-shadow: none !important;
+        transition: all 0.2s ease !important;
+        padding: 4px 12px !important;
+    }
+    div.stTextInput > div[data-baseweb="input"]:hover,
+    div.stTextInput > div[data-baseweb="input"]:focus-within {
+        border-color: rgba(0,0,0,0) !important;
+        box-shadow: 0 1px 6px rgba(32,33,36,0.28) !important;
+    }
+    div.stTextInput input {
+        font-size: 0.95rem !important;
+        color: #202124 !important;
+    }
+    /* Google Search style grey buttons */
+    div.google-btn button {
+        background-color: #f8f9fa !important;
+        border: 1px solid #f8f9fa !important;
+        color: #3c4043 !important;
+        font-size: 0.85rem !important;
+        font-weight: 500 !important;
+        padding: 6px 16px !important;
+        border-radius: 4px !important;
+        transition: all 0.15s ease !important;
+    }
+    div.google-btn button:hover {
+        border-color: #dadce0 !important;
+        color: #202124 !important;
+        background-color: #f8f9fa !important;
+        box-shadow: 0 1px 1px rgba(0,0,0,0.1) !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # Header with floating clear button (only shown when chat is not empty)
+    if st.session_state.ai_chat_history:
+        hc1, hc2 = st.columns([5, 1.2])
+        with hc1:
+            st.markdown("""
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+                <div style="font-size:24px;">💬</div>
+                <div>
+                    <div style="font-size:1.05rem;font-weight:800;color:#1e1b4b;">AI Chat Assistant</div>
+                    <div style="font-size:0.75rem;color:#6366f1;font-weight:500;">Ask general questions to your selected model</div>
+                </div>
             </div>
-        </div>
-        """, unsafe_allow_html=True)
-    with hc2:
-        # Floating clear button at top right
-        if st.session_state.ai_chat_history:
+            """, unsafe_allow_html=True)
+        with hc2:
             if st.button("🗑️ Clear Chat", key="ai_clear_chat", use_container_width=True, type="secondary"):
                 st.session_state.ai_chat_history = []
                 st.rerun()
 
-    # We determine if we need to run a query from either text input or suggestion click
     query_to_run = ""
 
-    # ── CASE 1: Empty state (Search Engine Homepage style) ──
+    # ── CASE 1: Empty state (Google Search Homepage Homage Layout) ──
     if not st.session_state.ai_chat_history:
+        # Centered Google-style colorful logo
         st.markdown("""
-        <div style="text-align:center;padding:50px 20px 20px;">
-            <div style="font-size:2.5rem;margin-bottom:12px;">🤖</div>
-            <div style="font-size:1.15rem;font-weight:700;color:#1e1b4b;margin-bottom:6px;">Start a conversation</div>
-            <div style="font-size:0.88rem;color:#64748b;margin-bottom:20px;">Ask me anything — I'll give you a clear, structured answer.</div>
+        <div style="text-align:center; padding-top:60px; margin-bottom:28px; select:none;">
+            <span style="font-size: 56px; font-weight: 800; font-family: 'Product Sans', -apple-system, BlinkMacSystemFont, sans-serif; letter-spacing: -2px;">
+                <span style="color:#4285F4;">V</span><span style="color:#EA4335;">i</span><span style="color:#FBBC05;">d</span><span style="color:#4285F4;">e</span><span style="color:#34A853;">o</span><span style="color:#EA4335;">A</span><span style="color:#4285F4;">I</span>
+            </span>
+            <div style="font-size:0.78rem; color:#70757a; font-weight:600; letter-spacing:0.08em; text-transform:uppercase; margin-top: -6px;">
+                AI Search & Chat
+            </div>
         </div>
         """, unsafe_allow_html=True)
 
-        # Centered Search Bar
+        # Centered Google-style Search Bar
         search_input = st.text_input(
             "Search Input",
-            placeholder="Type your question here and hit Enter...",
+            placeholder="",
             label_visibility="collapsed",
             key="center_search_input"
         )
-        if search_input.strip():
+
+        # Centered buttons layout: Google Search | I'm Feeling Lucky
+        st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+        
+        # Center align columns for the search buttons
+        col_space1, col_b1, col_b2, col_space2 = st.columns([1.5, 1.2, 1.3, 1.5])
+        
+        with col_b1:
+            st.markdown('<div class="google-btn">', unsafe_allow_html=True)
+            search_click = st.button("Google Search", key="btn_g_search", use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+        with col_b2:
+            st.markdown('<div class="google-btn">', unsafe_allow_html=True)
+            lucky_click = st.button("I'm Feeling Lucky", key="btn_lucky", use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        # Handle button clicks
+        if search_click and search_input.strip():
+            query_to_run = search_input.strip()
+            
+        if lucky_click:
+            import random
+            suggestions = [
+                "Explain machine learning in simple terms.",
+                "What is Retrieval-Augmented Generation (RAG)?",
+                "How does LangChain orchestrate LLM pipelines?",
+                "Write a Python script to scrape a webpage.",
+                "What is the difference between supervised and unsupervised learning?"
+            ]
+            query_to_run = random.choice(suggestions)
+
+        # Detect Enter key press on search_input
+        if search_input.strip() and not search_click and not lucky_click:
             query_to_run = search_input.strip()
 
         # Suggestion chips BELOW the search bar
         st.markdown("""
-        <div style="text-align:center;margin-top:12px;margin-bottom:8px;font-size:0.78rem;font-weight:600;color:#94a3b8;">
-            POPULAR SUGGESTIONS
+        <div style="text-align:center; margin-top:24px; margin-bottom:8px; font-size:0.75rem; font-weight:600; color:#70757a;">
+            Or select a quick suggestion:
         </div>
         """, unsafe_allow_html=True)
         col_s1, col_s2, col_s3 = st.columns(3)
         with col_s1:
-            if st.button("💡 Explain machine learning", use_container_width=True, key="sug_ml"):
+            if st.button("💡 Machine Learning Intro", use_container_width=True, key="sug_ml"):
                 query_to_run = "Explain machine learning in simple terms."
         with col_s2:
-            if st.button("📊 What is RAG?", use_container_width=True, key="sug_rag"):
+            if st.button("📊 RAG Explanation", use_container_width=True, key="sug_rag"):
                 query_to_run = "What is Retrieval-Augmented Generation (RAG)?"
         with col_s3:
-            if st.button("🚀 How does LangChain work?", use_container_width=True, key="sug_lc"):
+            if st.button("🚀 LangChain Pipelines", use_container_width=True, key="sug_lc"):
                 query_to_run = "How does LangChain orchestrate LLM pipelines?"
 
     # ── CASE 2: Active conversation state (Chat Messenger style) ──
