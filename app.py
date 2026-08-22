@@ -1098,147 +1098,123 @@ def render_loading(percent, step_icon, step_text, placeholder):
     </div>
     """, unsafe_allow_html=True)
 
-# ─── Sidebar — Clean Light Style ────────────────────────────────────────────────
+# ─── Sidebar — Compact Single-Screen Design ─────────────────────────────────────
 with st.sidebar:
-    # Brand
+    # ── Brand (compact) ──
     st.markdown("""
-    <div class="sb-brand">
-        <div class="sb-brand-logo">🎬</div>
+    <div style="display:flex;align-items:center;gap:10px;padding:4px 0 10px;">
+        <div style="background:linear-gradient(135deg,#6366f1,#8b5cf6);width:34px;height:34px;
+            border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">🎬</div>
         <div>
-            <div class="sb-brand-text">VideoAI</div>
-            <div class="sb-brand-sub">Meeting Intelligence</div>
+            <div style="font-weight:800;font-size:1rem;color:#1e1b4b;line-height:1.1;">VideoAI</div>
+            <div style="font-size:0.62rem;color:#6366f1;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">Meeting Intelligence</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Model selector at top ──
-    st.markdown(
-        "<div style='background:linear-gradient(135deg,#6366f1,#818cf8);border-radius:12px;"
-        "padding:10px 14px;margin-bottom:12px;'>"
-        "<div style='color:rgba(255,255,255,0.7);font-size:0.65rem;font-weight:700;"
-        "letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px;'>🤖 AI Model</div>",
-        unsafe_allow_html=True
-    )
-    selected_model = st.selectbox(
-        "Select AI Model",
-        list(MODEL_OPTIONS.keys()),
-        index=0,
-        label_visibility="collapsed",
-        key="model_selector_top",
-        help="Choose which AI model powers everything — analysis, summary, insights and chat."
-    )
+    # ── Model + Language in one compact row ──
+    mc, lc = st.columns(2)
+    with mc:
+        selected_model = st.selectbox(
+            "🤖 Model",
+            list(MODEL_OPTIONS.keys()),
+            index=0,
+            key="model_selector_top",
+            help="AI model used for analysis and chat."
+        )
+    with lc:
+        language = st.selectbox(
+            "🌐 Language",
+            ["English", "Kannada", "Telugu", "Hindi"],
+            index=0,
+        )
+
     badge = get_provider_badge(selected_model)
     st.markdown(
-        f"<div style='font-size:0.7rem;color:rgba(255,255,255,0.75);margin-top:4px;'>"
-        f"Active: {badge}</div></div>",
+        f"<div style='font-size:0.68rem;color:#6366f1;margin:-6px 0 8px;'>Active: {badge}</div>",
         unsafe_allow_html=True
     )
 
+    # ── ⚡ Analyse Video — prominent CTA ──
     run_btn = st.button("⚡  Analyse Video", use_container_width=True, key="run_btn_top")
 
-    # Input Section
-    st.markdown('<div class="sb-section-label">🎤 Input Source</div>', unsafe_allow_html=True)
-    
-    with st.container(border=True):
+    st.markdown("<div style='margin:10px 0 6px;border-top:1px solid #e2e8f0;'></div>", unsafe_allow_html=True)
+
+    # ── Input source — tabbed so all 3 fit without scrolling ──
+    st.markdown("<div style='font-size:0.72rem;font-weight:700;color:#64748b;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;'>📥 Input Source</div>", unsafe_allow_html=True)
+    tab_yt, tab_up, tab_paste = st.tabs(["🎥 YouTube", "📁 Upload", "📝 Paste"])
+
+    with tab_yt:
         source = st.text_input(
-            "🎥 YouTube URL",
+            "YouTube URL",
             placeholder="https://youtube.com/watch?v=...",
-            help="Paste a YouTube link — captions will be fetched automatically.",
+            label_visibility="collapsed",
+            help="Paste a YouTube link — captions fetched automatically.",
         )
-        
-    with st.container(border=True):
+
+    with tab_up:
         uploaded_media = st.file_uploader(
-            "📁 Upload File",
+            "Audio/Video file",
             type=["mp3", "mp4", "m4a", "wav", "webm", "mov", "aac", "ogg"],
-            help="Upload an audio/video file and Groq Whisper will transcribe it.",
+            label_visibility="collapsed",
+            help="Upload a file — Groq Whisper will transcribe it.",
         )
-        
-    with st.container(border=True):
+
+    with tab_paste:
         pasted_transcript = st.text_area(
-            "📝 Paste Transcript",
-            placeholder="Directly paste captions here...",
-            height=90,
-            help="If you already have a transcript, paste it here to skip extraction.",
+            "Paste transcript",
+            placeholder="Paste captions or transcript here...",
+            height=80,
+            label_visibility="collapsed",
         )
 
-    st.markdown('<div class="sb-section-label" style="margin-top: 1rem;">🌐 Output Language</div>', unsafe_allow_html=True)
-    with st.container(border=True):
-        language = st.selectbox(
-            "Select Language", 
-            ["English", "Kannada", "Telugu", "Hindi"], 
-            index=0, 
-            label_visibility="collapsed"
+    st.markdown("<div style='margin:8px 0 4px;border-top:1px solid #e2e8f0;'></div>", unsafe_allow_html=True)
+
+    # ── API Key status — compact inline dots ──
+    keys_info = [
+        ("GOOGLE_API_KEY", "Gemini"),
+        ("GROQ_API_KEY",   "Groq"),
+    ]
+    dots_html = "<div style='display:flex;gap:12px;align-items:center;padding:4px 0;'>"
+    for env_var, label in keys_info:
+        key = os.getenv(env_var, "").strip()
+        ok = bool(key and len(key) > 10)
+        color = "#10b981" if ok else "#ef4444"
+        dots_html += (
+            f"<div style='display:flex;align-items:center;gap:4px;'>"
+            f"<div style='width:7px;height:7px;border-radius:50%;background:{color};'></div>"
+            f"<span style='font-size:0.7rem;color:#64748b;'>{label}</span>"
+            f"</div>"
         )
+    dots_html += "</div>"
+    st.markdown(dots_html, unsafe_allow_html=True)
 
-    st.markdown("<div style='height:0.35rem'></div>", unsafe_allow_html=True)
-
-    # Pipeline status
+    # ── Pipeline status (shown only after analysis) ──
     if st.session_state.pipeline_done:
-        st.markdown("---")
-        st.markdown("""
-        <div class="sb-status">
-            <div class="sb-status-dot"></div>
-            Analysis Complete
-        </div>
-        """, unsafe_allow_html=True)
-        
-        steps_html = '<div class="sb-pipeline">'
+        st.markdown("<div style='margin:6px 0 4px;border-top:1px solid #e2e8f0;'></div>", unsafe_allow_html=True)
+        steps_html = '<div style="display:flex;flex-wrap:wrap;gap:4px;">'
         for key, icon, label in [
-            ("audio", "🔊", "Audio"), ("transcript", "📝", "Transcription"),
-            ("title", "🏷️", "Title"), ("summary", "📋", "Summary"),
-            ("extract", "🔍", "Extraction"), ("rag", "🧠", "RAG Engine"),
+            ("audio","🔊","Audio"),("transcript","📝","Transcript"),
+            ("title","🏷️","Title"),("summary","📋","Summary"),
+            ("extract","🔍","Insights"),("rag","🧠","RAG"),
         ]:
             s = st.session_state.pipeline_steps.get(key, "pending")
-            dot_cls = "done" if s == "done" else "active" if s == "active" else "pending"
-            steps_html += f'<div class="sb-step"><div class="sb-step-dot {dot_cls}"></div>{icon} {label}</div>'
+            bg = "#d1fae5" if s=="done" else "#fef3c7" if s=="active" else "#f1f5f9"
+            tc = "#065f46" if s=="done" else "#92400e" if s=="active" else "#64748b"
+            steps_html += f'<div style="background:{bg};color:{tc};font-size:0.65rem;font-weight:600;padding:2px 7px;border-radius:100px;">{icon} {label}</div>'
         steps_html += '</div>'
         st.markdown(steps_html, unsafe_allow_html=True)
 
-    # Previous analyses history
+    # ── Previous analyses ──
     if st.session_state.analysis_history:
-        st.markdown("---")
-        st.markdown('<div class="sb-section-label">📂 Previous Analyses</div>', unsafe_allow_html=True)
-        
-        history_html = ""
-        for i, item in enumerate(reversed(st.session_state.analysis_history)):
-            active_cls = "active" if i == 0 and st.session_state.pipeline_done else ""
-            history_html += f"""
-            <div class="sb-history-item {active_cls}">
-                <span class="sb-history-icon">🎬</span>
-                <span class="sb-history-text">{item['title']}</span>
-            </div>"""
-        st.markdown(history_html, unsafe_allow_html=True)
-
-    # Footer
-    st.markdown("---")
-    # ── API Key Status ──
-    st.markdown("---")
-    st.markdown('<div class="sb-section-label">🔑 API Key Status</div>', unsafe_allow_html=True)
-    key_html = ""
-    for provider, env_var, label in [
-        ("google", "GOOGLE_API_KEY", "Google Gemini"),
-        ("groq",   "GROQ_API_KEY",   "Groq"),
-        ("openai", "OPENAI_API_KEY", "OpenAI"),
-    ]:
-        key = os.getenv(env_var, "").strip()
-        ok = bool(key and len(key) > 10)
-        dot = "#10b981" if ok else "#ef4444"
-        status = "Ready" if ok else "Key missing"
-        key_html += (
-            f'<div style="display:flex;align-items:center;gap:8px;padding:4px 0;">'
-            f'<div style="width:8px;height:8px;border-radius:50%;background:{dot};flex-shrink:0;"></div>'
-            f'<span style="font-size:0.78rem;color:#334155;">{label}</span>'
-            f'<span style="font-size:0.72rem;color:{"#10b981" if ok else "#ef4444"};margin-left:auto;">{status}</span>'
-            f'</div>'
-        )
-    st.markdown(f'<div style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;">{key_html}</div>', unsafe_allow_html=True)
-
-    st.markdown("""
-    <div class="sb-footer">
-        <div class="sb-footer-label">Powered by</div>
-        <div class="sb-footer-tech">Google Gemini · Groq · OpenAI · LangChain</div>
-    </div>
-    """, unsafe_allow_html=True)
+        st.markdown("<div style='margin:8px 0 4px;border-top:1px solid #e2e8f0;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='font-size:0.68rem;font-weight:700;color:#64748b;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:4px;'>📂 Recent</div>", unsafe_allow_html=True)
+        for i, item in enumerate(reversed(st.session_state.analysis_history[:3])):
+            st.markdown(
+                f"<div style='font-size:0.75rem;color:#334155;padding:3px 0;white-space:nowrap;"
+                f"overflow:hidden;text-overflow:ellipsis;'>🎬 {item['title']}</div>",
+                unsafe_allow_html=True
+            )
 
 # ─── Main Content — Centered ────────────────────────────────────────────────────
 st.markdown('<div class="main-wrapper">', unsafe_allow_html=True)
