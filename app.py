@@ -1134,6 +1134,8 @@ with st.sidebar:
         unsafe_allow_html=True
     )
 
+    run_btn = st.button("⚡  Analyse Video", use_container_width=True, key="run_btn_top")
+
     # Input Section
     st.markdown('<div class="sb-section-label">🎤 Input Source</div>', unsafe_allow_html=True)
     
@@ -1169,7 +1171,6 @@ with st.sidebar:
         )
 
     st.markdown("<div style='height:0.35rem'></div>", unsafe_allow_html=True)
-    run_btn = st.button("⚡  Analyse Video", use_container_width=True)
 
     # Pipeline status
     if st.session_state.pipeline_done:
