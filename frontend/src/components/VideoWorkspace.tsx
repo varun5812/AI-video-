@@ -496,47 +496,85 @@ export default function VideoWorkspace({ activeTab, selectedModel, activeModelDi
                     </div>
                   </div>
 
-                  {/* Content area */}
+                  {/* Content area — Point-by-point bullet layout */}
                   <div className="p-5">
-                    {/* Colored left-border callout */}
-                    <div className={`border-l-2 pl-4 ${
-                      summaryMode === 'short' ? 'border-emerald-500' :
-                      summaryMode === 'standard' ? 'border-indigo-500' : 'border-purple-500'
-                    }`}>
+
+                    {/* Mode label badge */}
+                    <div className="mb-3">
                       {summaryMode === 'short' && (
-                        <div className="flex flex-col gap-2">
-                          <div className="inline-flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full w-fit">
-                            ⚡ Quick Summary
-                          </div>
-                          <p className="text-sm text-slate-200 leading-relaxed font-medium">
-                            {analysisData.summary.short}
-                          </p>
+                        <div className="inline-flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold px-2.5 py-1 rounded-full">
+                          ⚡ Quick Summary
                         </div>
                       )}
-
                       {summaryMode === 'standard' && (
-                        <div className="flex flex-col gap-2">
-                          <div className="inline-flex items-center gap-1.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[10px] font-bold px-2 py-0.5 rounded-full w-fit">
-                            📄 Standard Summary
-                          </div>
-                          <p className="text-xs text-slate-300 leading-relaxed">
-                            {analysisData.summary.standard}
-                          </p>
+                        <div className="inline-flex items-center gap-1.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[10px] font-bold px-2.5 py-1 rounded-full">
+                          📄 Standard Summary
                         </div>
                       )}
-
                       {summaryMode === 'detailed' && (
-                        <div className="flex flex-col gap-2">
-                          <div className="inline-flex items-center gap-1.5 bg-purple-500/10 border border-purple-500/20 text-purple-400 text-[10px] font-bold px-2 py-0.5 rounded-full w-fit">
-                            🔬 Detailed Briefing
-                          </div>
-                          <div
-                            className="text-xs text-slate-300 leading-relaxed [&_h3]:text-sm [&_h3]:font-bold [&_h3]:text-white [&_h3]:mt-3 [&_h3]:mb-1 [&_ul]:list-disc [&_ul]:pl-4 [&_ul]:space-y-1 [&_ol]:list-decimal [&_ol]:pl-4 [&_ol]:space-y-1 [&_strong]:text-white"
-                            dangerouslySetInnerHTML={{ __html: analysisData.summary.detailed.replace(/\n/g, '<br/>').replace(/###\s(.*)/g, '<h3>$1</h3>') }}
-                          />
+                        <div className="inline-flex items-center gap-1.5 bg-purple-500/10 border border-purple-500/20 text-purple-400 text-[10px] font-bold px-2.5 py-1 rounded-full">
+                          🔬 Detailed Briefing
                         </div>
                       )}
                     </div>
+
+                    {/* Point-by-point list — split on sentences */}
+                    {(summaryMode === 'short' || summaryMode === 'standard') && (
+                      <ol className="flex flex-col gap-2.5">
+                        {analysisData.summary[summaryMode]
+                          .split(/(?<=[.!?])\s+/)
+                          .filter((s: string) => s.trim().length > 5)
+                          .map((point: string, i: number) => (
+                            <li key={i} className="flex items-start gap-3 group">
+                              {/* Numbered circle */}
+                              <span className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-extrabold mt-0.5 ${
+                                summaryMode === 'short'
+                                  ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                                  : 'bg-indigo-500/15 text-indigo-400 border border-indigo-500/30'
+                              }`}>
+                                {i + 1}
+                              </span>
+                              <span className="text-xs text-slate-200 leading-relaxed group-hover:text-white transition-colors">
+                                {point.trim()}
+                              </span>
+                            </li>
+                          ))}
+                      </ol>
+                    )}
+
+                    {/* Detailed mode — split on newlines / section headers */}
+                    {summaryMode === 'detailed' && (
+                      <div className="flex flex-col gap-2">
+                        {analysisData.summary.detailed
+                          .split('\n')
+                          .filter((line: string) => line.trim().length > 0)
+                          .map((line: string, i: number) => {
+                            const isHeader = line.startsWith('###')
+                            const cleanLine = line.replace(/^###\s*/, '').replace(/^\d+\.\s*/, '').replace(/^[-*]\s*/, '')
+                            const isBullet = line.match(/^[-*\d]/)
+
+                            if (isHeader) {
+                              return (
+                                <p key={i} className="text-xs font-extrabold text-white mt-2 mb-0.5 uppercase tracking-wider flex items-center gap-1.5">
+                                  <span className="w-3 h-0.5 bg-purple-500 rounded-full inline-block" />
+                                  {cleanLine}
+                                </p>
+                              )
+                            }
+
+                            return (
+                              <div key={i} className="flex items-start gap-2.5 group">
+                                <span className={`flex-shrink-0 mt-1.5 w-1.5 h-1.5 rounded-full ${
+                                  isBullet ? 'bg-purple-400' : 'bg-white/20'
+                                }`} />
+                                <span className="text-xs text-slate-300 leading-relaxed group-hover:text-slate-100 transition-colors">
+                                  {cleanLine}
+                                </span>
+                              </div>
+                            )
+                          })}
+                      </div>
+                    )}
 
                     {/* Info chips row */}
                     <div className="flex flex-wrap gap-2 mt-4 pt-3 border-t border-white/5">
