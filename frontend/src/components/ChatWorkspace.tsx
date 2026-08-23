@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
+import { marked } from 'marked'
 import { 
   Paperclip, 
   Mic, 
@@ -12,13 +13,17 @@ import {
   Copy, 
   RotateCw,
   Sparkles,
-  Bot
+  Bot,
+  Check
 } from 'lucide-react'
 import ModeSwitcher from './ModeSwitcher'
 
+// Configure marked renderer
+marked.setOptions({ breaks: true, gfm: true })
+
 interface Message {
   role: 'user' | 'assistant'
-  content: string
+  content: string  // always plain text / markdown from API
   timestamp: string
 }
 
@@ -33,6 +38,7 @@ export default function ChatWorkspace({ activeTab, setActiveTab, selectedModel, 
   const [messages, setMessages] = useState<Message[]>([])
   const [inputVal, setInputVal] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
 
   const suggestions = [
@@ -46,8 +52,18 @@ export default function ChatWorkspace({ activeTab, setActiveTab, selectedModel, 
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isLoading])
 
+  // Render markdown -> safe HTML string
+  const renderMarkdown = (text: string): string => {
+    try {
+      return marked.parse(text) as string
+    } catch {
+      return text.replace(/\n/g, '<br/>')
+    }
+  }
+
   const handleSend = async (text: string) => {
-    if (!text.trim()) return
+    if (!text.trim() || isLoading) return
+
     const userMsg: Message = {
       role: 'user',
       content: text,
@@ -72,34 +88,28 @@ export default function ChatWorkspace({ activeTab, setActiveTab, selectedModel, 
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }
         setMessages(prev => [...prev, botMsg])
+        setIsLoading(false)
       } else {
-        throw new Error('API server returned an error.')
+        const errData = await response.json().catch(() => ({ detail: 'Server error.' }))
+        throw new Error(errData.detail || 'API returned an error.')
       }
-    } catch (err) {
-      // Fallback Mock Responses when backend is offline
-      setTimeout(() => {
-        let mockAnswer = `This is a premium AI response powered by **${activeModelDisplayName}**.<br/><br/>I am running in local workspace mode. When you launch the FastAPI backend server, I will answer your questions in real-time.<br/><br/>**Here is a quick summary of what you asked:**<br/>*${text}*`
-        
-        if (text.toLowerCase().includes('relativity')) {
-          mockAnswer = `### General Relativity Analogy 🌌<br/><br/>Imagine space as a **flexible rubber sheet**. If you place a heavy bowling ball in the center, it creates a deep dip. <br/><br/>If you roll a small marble across the sheet, it curves toward the bowling ball not because of a mysterious pulling force, but because the sheet itself is curved. <br/><br/>* **Mass** (the bowling ball) curves space-time.<br/>* **Space-time curvature** tells mass (the marble) how to move.`
-        } else if (text.toLowerCase().includes('python')) {
-          mockAnswer = `Here is a clean Python solution using the standard \`urllib.parse\` library:<br/><br/>\`\`\`python\nfrom urllib.parse import urlparse, parse_qs\n\ndef get_query_params(url):\n    parsed_url = urlparse(url)\n    return parse_qs(parsed_url.query)\n\n# Example usage:\nprint(get_query_params("https://example.com?item=chair&qty=4"))\n# Output: {'item': ['chair'], 'qty': ['4']}\n\`\`\``
-        }
-
-        const botMsg: Message = {
-          role: 'assistant',
-          content: mockAnswer,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        }
-        setMessages(prev => [...prev, botMsg])
-      }, 800)
-    } finally {
+    } catch (err: any) {
+      // Graceful fallback — show the error reason as bot reply
+      const errMsg = err?.message || 'Something went wrong.'
+      const botMsg: Message = {
+        role: 'assistant',
+        content: `⚠️ **Could not connect to AI backend.**\n\n${errMsg}\n\nMake sure the server is running at \`http://localhost:8000\` and your API keys are valid in \`.env\`.`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }
+      setMessages(prev => [...prev, botMsg])
       setIsLoading(false)
     }
   }
 
-  const copyToClipboard = (text: string) => {
+  const copyToClipboard = (text: string, idx: number) => {
     navigator.clipboard.writeText(text)
+    setCopiedIdx(idx)
+    setTimeout(() => setCopiedIdx(null), 2000)
   }
 
   return (
@@ -156,7 +166,7 @@ export default function ChatWorkspace({ activeTab, setActiveTab, selectedModel, 
             {messages.map((msg, index) => (
               <div 
                 key={index}
-                className={`flex gap-4 max-w-[85%] animate-[fadeUp_0.3s_ease-out] ${
+                className={`flex gap-4 max-w-[85%] ${
                   msg.role === 'user' ? 'self-end flex-row-reverse' : 'self-start'
                 }`}
               >
@@ -178,30 +188,34 @@ export default function ChatWorkspace({ activeTab, setActiveTab, selectedModel, 
                         : 'glass-panel text-slate-200 rounded-tl-none border border-white/5'
                     }`}
                   >
-                    {/* Rendered HTML/Markdown */}
-                    <div 
-                      className="prose prose-invert max-w-none text-slate-100"
-                      dangerouslySetInnerHTML={{ __html: msg.content }}
-                    />
+                    {msg.role === 'user' ? (
+                      <span>{msg.content}</span>
+                    ) : (
+                      /* Render AI markdown */
+                      <div 
+                        className="prose prose-invert prose-sm max-w-none text-slate-100 [&_code]:bg-white/10 [&_code]:px-1 [&_code]:rounded [&_pre]:bg-white/5 [&_pre]:p-3 [&_pre]:rounded-xl [&_pre]:overflow-x-auto [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm [&_strong]:text-white"
+                        dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
+                      />
+                    )}
                   </div>
 
                   {/* Actions (Only for Bot reply) */}
                   {msg.role === 'assistant' && (
                     <div className="flex items-center gap-3 pl-2 mt-1">
                       <button 
-                        onClick={() => copyToClipboard(msg.content.replace(/<[^>]*>/g, ''))}
+                        onClick={() => copyToClipboard(msg.content, index)}
                         className="p-1 text-slate-500 hover:text-slate-300 transition cursor-pointer"
                         title="Copy text"
                       >
-                        <Copy className="w-3.5 h-3.5" />
+                        {copiedIdx === index ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                       </button>
                       <button className="p-1 text-slate-500 hover:text-slate-300 transition cursor-pointer" title="Regenerate">
                         <RotateCw className="w-3.5 h-3.5" />
                       </button>
-                      <button className="p-1 text-slate-500 hover:text-slate-300 transition cursor-pointer" title="Helpful">
+                      <button className="p-1 text-slate-500 hover:text-green-400 transition cursor-pointer" title="Helpful">
                         <ThumbsUp className="w-3.5 h-3.5" />
                       </button>
-                      <button className="p-1 text-slate-500 hover:text-slate-300 transition cursor-pointer" title="Not helpful">
+                      <button className="p-1 text-slate-500 hover:text-rose-400 transition cursor-pointer" title="Not helpful">
                         <ThumbsDown className="w-3.5 h-3.5" />
                       </button>
                       <span className="text-[10px] text-slate-500 font-semibold ml-auto">{msg.timestamp}</span>
@@ -211,16 +225,16 @@ export default function ChatWorkspace({ activeTab, setActiveTab, selectedModel, 
               </div>
             ))}
 
-            {/* Spinner indicator when loading */}
+            {/* Typing Indicator */}
             {isLoading && (
-              <div className="flex gap-4 self-start animate-pulse">
+              <div className="flex gap-4 self-start">
                 <div className="w-8 h-8 rounded-full bg-white/10 text-indigo-400 border border-white/5 flex items-center justify-center text-sm">
                   <Bot className="w-4 h-4" />
                 </div>
-                <div className="glass-panel border border-white/5 rounded-2xl rounded-tl-none px-5 py-3.5 flex items-center gap-2">
+                <div className="glass-panel border border-white/5 rounded-2xl rounded-tl-none px-5 py-4 flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" />
-                  <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce [animation-delay:0.2s]" />
-                  <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce [animation-delay:0.4s]" />
+                  <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce [animation-delay:0.15s]" />
+                  <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce [animation-delay:0.3s]" />
                 </div>
               </div>
             )}
@@ -229,7 +243,7 @@ export default function ChatWorkspace({ activeTab, setActiveTab, selectedModel, 
         )}
       </div>
 
-      {/* Floating Chat Input Section (850-950px width, Bottom) */}
+      {/* Floating Chat Input Section */}
       <div className="max-w-[920px] mx-auto w-full px-6 sticky bottom-0 z-20">
         <div className="glass-panel border border-white/10 rounded-[28px] p-2.5 flex items-center gap-3 shadow-2xl shadow-indigo-950/20 backdrop-blur-2xl">
           {/* Mode Switcher */}
@@ -243,10 +257,11 @@ export default function ChatWorkspace({ activeTab, setActiveTab, selectedModel, 
             value={inputVal}
             onChange={(e) => setInputVal(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSend(inputVal)
+              if (e.key === 'Enter' && !isLoading) handleSend(inputVal)
             }}
             placeholder="Message your AI assistant..."
             className="flex-1 bg-transparent border-none focus:outline-none text-sm text-slate-100 placeholder-slate-500 px-2 py-2"
+            disabled={isLoading}
           />
 
           {/* Right Action Icons */}
@@ -261,7 +276,8 @@ export default function ChatWorkspace({ activeTab, setActiveTab, selectedModel, 
             {/* Round Gradient Send Button */}
             <button 
               onClick={() => handleSend(inputVal)}
-              className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-indigo-600 flex items-center justify-center text-white hover:from-indigo-400 hover:to-indigo-500 shadow-[0_2px_8px_rgba(99,102,241,0.3)] transition-all cursor-pointer"
+              disabled={isLoading || !inputVal.trim()}
+              className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-indigo-600 flex items-center justify-center text-white hover:from-indigo-400 hover:to-indigo-500 disabled:opacity-40 shadow-[0_2px_8px_rgba(99,102,241,0.3)] transition-all cursor-pointer"
             >
               <Send className="w-3.5 h-3.5" />
             </button>

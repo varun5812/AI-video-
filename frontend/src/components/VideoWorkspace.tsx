@@ -458,39 +458,99 @@ export default function VideoWorkspace({ activeTab, selectedModel, activeModelDi
               <div className="lg:col-span-6 flex flex-col gap-5">
                 
                 {/* Tabs selection: Summary | Transcript | Key Moments | Insights | Ask AI */}
-                <div className="glass-panel p-4 rounded-3xl border border-white/5 flex flex-col gap-4">
+                <div className="glass-panel rounded-3xl border border-white/5 overflow-hidden">
                   
-                  {/* Summary Mode select buttons */}
-                  <div className="flex justify-between items-center border-b border-white/5 pb-2">
-                    <span className="font-bold text-sm text-slate-200 flex items-center gap-1.5">
-                      📝 Summary Briefing
-                    </span>
-                    <div className="flex gap-1 bg-white/5 p-0.5 rounded-lg border border-white/5">
-                      {(['short', 'standard', 'detailed'] as const).map((m) => (
-                        <button
-                          key={m}
-                          onClick={() => setSummaryMode(m)}
-                          className={`text-[10px] font-bold px-2 py-1 rounded-md transition cursor-pointer capitalize ${
-                            summaryMode === m ? 'bg-indigo-500 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
-                          }`}
-                        >
-                          {m}
-                        </button>
-                      ))}
+                  {/* Header row with gradient top bar */}
+                  <div className="bg-gradient-to-r from-indigo-600/20 via-purple-600/10 to-transparent border-b border-white/5 px-5 pt-4 pb-3">
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-indigo-500/20 flex items-center justify-center text-sm">📝</div>
+                        <div>
+                          <h4 className="font-extrabold text-sm text-white leading-none">Summary Briefing</h4>
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            {analysisData.summary[summaryMode].split(' ').length} words · ~{Math.ceil(analysisData.summary[summaryMode].split(' ').length / 200)} min read
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Mode toggle pills */}
+                      <div className="flex gap-1 bg-white/5 p-0.5 rounded-xl border border-white/5">
+                        {([
+                          { key: 'short', label: '⚡ Brief', color: 'from-emerald-500 to-teal-500' },
+                          { key: 'standard', label: '📄 Standard', color: 'from-indigo-500 to-violet-500' },
+                          { key: 'detailed', label: '🔬 Detailed', color: 'from-purple-500 to-pink-500' },
+                        ] as const).map((m) => (
+                          <button
+                            key={m.key}
+                            onClick={() => setSummaryMode(m.key)}
+                            className={`text-[10px] font-bold px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+                              summaryMode === m.key
+                                ? `bg-gradient-to-r ${m.color} text-white shadow-md`
+                                : 'text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            {m.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
 
-                  {/* Summary content */}
-                  <p className="text-xs text-slate-300 leading-relaxed min-h-[80px]">
-                    {summaryMode === 'short' && analysisData.summary.short}
-                    {summaryMode === 'standard' && analysisData.summary.standard}
-                    {summaryMode === 'detailed' && (
-                      <div 
-                        className="prose prose-invert prose-xs text-slate-300"
-                        dangerouslySetInnerHTML={{ __html: analysisData.summary.detailed.replace(/\n/g, '<br/>') }}
-                      />
-                    )}
-                  </p>
+                  {/* Content area */}
+                  <div className="p-5">
+                    {/* Colored left-border callout */}
+                    <div className={`border-l-2 pl-4 ${
+                      summaryMode === 'short' ? 'border-emerald-500' :
+                      summaryMode === 'standard' ? 'border-indigo-500' : 'border-purple-500'
+                    }`}>
+                      {summaryMode === 'short' && (
+                        <div className="flex flex-col gap-2">
+                          <div className="inline-flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full w-fit">
+                            ⚡ Quick Summary
+                          </div>
+                          <p className="text-sm text-slate-200 leading-relaxed font-medium">
+                            {analysisData.summary.short}
+                          </p>
+                        </div>
+                      )}
+
+                      {summaryMode === 'standard' && (
+                        <div className="flex flex-col gap-2">
+                          <div className="inline-flex items-center gap-1.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[10px] font-bold px-2 py-0.5 rounded-full w-fit">
+                            📄 Standard Summary
+                          </div>
+                          <p className="text-xs text-slate-300 leading-relaxed">
+                            {analysisData.summary.standard}
+                          </p>
+                        </div>
+                      )}
+
+                      {summaryMode === 'detailed' && (
+                        <div className="flex flex-col gap-2">
+                          <div className="inline-flex items-center gap-1.5 bg-purple-500/10 border border-purple-500/20 text-purple-400 text-[10px] font-bold px-2 py-0.5 rounded-full w-fit">
+                            🔬 Detailed Briefing
+                          </div>
+                          <div
+                            className="text-xs text-slate-300 leading-relaxed [&_h3]:text-sm [&_h3]:font-bold [&_h3]:text-white [&_h3]:mt-3 [&_h3]:mb-1 [&_ul]:list-disc [&_ul]:pl-4 [&_ul]:space-y-1 [&_ol]:list-decimal [&_ol]:pl-4 [&_ol]:space-y-1 [&_strong]:text-white"
+                            dangerouslySetInnerHTML={{ __html: analysisData.summary.detailed.replace(/\n/g, '<br/>').replace(/###\s(.*)/g, '<h3>$1</h3>') }}
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Info chips row */}
+                    <div className="flex flex-wrap gap-2 mt-4 pt-3 border-t border-white/5">
+                      <span className="bg-white/5 border border-white/8 text-[10px] font-semibold px-2.5 py-1 rounded-full text-slate-300">
+                        🎬 {analysisData.filename}
+                      </span>
+                      <span className="bg-white/5 border border-white/8 text-[10px] font-semibold px-2.5 py-1 rounded-full text-slate-300">
+                        ⏱ {analysisData.duration}
+                      </span>
+                      <span className="bg-white/5 border border-white/8 text-[10px] font-semibold px-2.5 py-1 rounded-full text-slate-300">
+                        📐 {analysisData.resolution}
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Key Moments Timeline */}

@@ -75,11 +75,17 @@ async def chat_ai(payload: ChatRequest):
     
     try:
         llm = get_llm(payload.model)
-        # Use simple structured prompt
-        prompt = f"You are a helpful, knowledgeable AI assistant. Please respond to the user query in a clear, structured way (using bold text and bullet points where appropriate):\n\nQuery: {payload.question}"
+        prompt = f"You are a helpful, knowledgeable AI assistant. Please respond clearly and in a structured way using markdown (bold, bullets, headers where appropriate):\n\nQuery: {payload.question}"
         response = llm.invoke(prompt)
-        # Convert response content to string format
-        answer = response.content if hasattr(response, "content") else str(response)
+        # Handle both plain string and list-of-dicts content (Gemini returns list format)
+        raw = response.content if hasattr(response, "content") else str(response)
+        if isinstance(raw, list):
+            answer = " ".join(
+                chunk.get("text", "") if isinstance(chunk, dict) else str(chunk)
+                for chunk in raw
+            ).strip()
+        else:
+            answer = str(raw).strip()
         return {"answer": answer}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
