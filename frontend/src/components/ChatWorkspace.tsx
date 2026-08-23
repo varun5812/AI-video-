@@ -14,7 +14,9 @@ import {
   RotateCw,
   Sparkles,
   Bot,
-  Check
+  Check,
+  FileText,
+  X
 } from 'lucide-react'
 import ModeSwitcher from './ModeSwitcher'
 
@@ -23,7 +25,8 @@ marked.setOptions({ breaks: true, gfm: true })
 
 interface Message {
   role: 'user' | 'assistant'
-  content: string  // always plain text / markdown from API
+  content: string  // plain text / markdown from API
+  attachedDoc?: string
   timestamp: string
 }
 
@@ -39,7 +42,14 @@ export default function ChatWorkspace({ activeTab, setActiveTab, selectedModel, 
   const [inputVal, setInputVal] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null)
+  
+  // PDF / Document Attachment & Continuous Chat Context
+  const [attachedFile, setAttachedFile] = useState<File | null>(null)
+  const [activeDocContext, setActiveDocContext] = useState<string>('')
+  const [activeDocName, setActiveDocName] = useState<string>('')
+
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const suggestions = [
     { id: 'explain', title: 'Explain something', desc: 'Break down complex topics into simple terms', icon: Lightbulb, prompt: 'Explain the theory of general relativity in simple terms with an analogy.' },
@@ -65,44 +75,95 @@ export default function ChatWorkspace({ activeTab, setActiveTab, selectedModel, 
     }
   }
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setAttachedFile(e.target.files[0])
+    }
+  }
+
   const handleSend = async (text: string) => {
-    if (!text.trim() || isLoading) return
+    if ((!text.trim() && !attachedFile) || isLoading) return
+
+    const currentFile = attachedFile
+    const isDocUpload = !!currentFile
+    const promptText = text.trim() || (currentFile ? `Analyze document: ${currentFile.name}` : '')
 
     const userMsg: Message = {
       role: 'user',
-      content: text,
+      content: promptText,
+      attachedDoc: currentFile ? currentFile.name : undefined,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
+
     setMessages(prev => [...prev, userMsg])
     setInputVal('')
+    setAttachedFile(null)
     setIsLoading(true)
 
     try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: text, model: selectedModel })
-      })
+      if (isDocUpload && currentFile) {
+        // Scenario A: User uploaded a PDF/Document
+        const formData = new FormData()
+        formData.append('file', currentFile)
+        formData.append('question', promptText)
+        formData.append('model', selectedModel)
 
-      if (response.ok) {
-        const data = await response.json()
-        const botMsg: Message = {
-          role: 'assistant',
-          content: data.answer,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        const response = await fetch('/api/chat/pdf', {
+          method: 'POST',
+          body: formData
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          
+          // Save document context for continuous follow-up questions!
+          setActiveDocContext(data.extracted_text || '')
+          setActiveDocName(data.filename || currentFile.name)
+
+          const botMsg: Message = {
+            role: 'assistant',
+            content: data.answer,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }
+          setMessages(prev => [...prev, botMsg])
+          setIsLoading(false)
+        } else {
+          const errData = await response.json().catch(() => ({ detail: 'PDF Analysis failed.' }))
+          throw new Error(errData.detail || 'PDF Analysis failed.')
         }
-        setMessages(prev => [...prev, botMsg])
-        setIsLoading(false)
+
       } else {
-        const errData = await response.json().catch(() => ({ detail: 'Server error.' }))
-        throw new Error(errData.detail || 'API returned an error.')
+        // Scenario B: Standard Chat or Follow-up question (with active doc_context preserved)
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            question: promptText, 
+            model: selectedModel,
+            doc_context: activeDocContext 
+          })
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          const botMsg: Message = {
+            role: 'assistant',
+            content: data.answer,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }
+          setMessages(prev => [...prev, botMsg])
+          setIsLoading(false)
+        } else {
+          const errData = await response.json().catch(() => ({ detail: 'Server error.' }))
+          throw new Error(errData.detail || 'API returned an error.')
+        }
       }
+
     } catch (err: any) {
-      // Graceful fallback — show the error reason as bot reply
       const errMsg = err?.message || 'Something went wrong.'
       const botMsg: Message = {
         role: 'assistant',
-        content: `⚠️ **Could not connect to AI backend.**\n\n${errMsg}\n\nMake sure the server is running at \`http://localhost:8000\` and your API keys are valid in \`.env\`.`,
+        content: `⚠️ **Error Processing Request**\n\n${errMsg}\n\nPlease check your server at \`http://localhost:8000\` and ensure API keys are configured properly.`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }
       setMessages(prev => [...prev, botMsg])
@@ -118,6 +179,15 @@ export default function ChatWorkspace({ activeTab, setActiveTab, selectedModel, 
 
   return (
     <div className="flex-1 flex flex-col justify-between relative grid-bg min-h-[calc(100vh-64px)] pb-12 overflow-y-auto">
+      {/* Hidden File Input */}
+      <input 
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileSelect}
+        accept=".pdf,.txt,.md"
+        className="hidden"
+      />
+
       {/* Background Gradients */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
         <div className="absolute top-[10%] left-[20%] w-[350px] h-[350px] ambient-glow-1 rounded-full filter blur-[80px]" />
@@ -139,7 +209,7 @@ export default function ChatWorkspace({ activeTab, setActiveTab, selectedModel, 
               What can I help you with?
             </h2>
             <p className="text-slate-400 text-sm max-w-lg text-center mb-8 leading-relaxed">
-              Ask questions, analyze information, write content, or solve problems with AI.
+              Ask questions, upload PDF documents for analysis, write content, or solve problems with AI.
             </p>
 
             {/* Suggestions Grid */}
@@ -166,7 +236,7 @@ export default function ChatWorkspace({ activeTab, setActiveTab, selectedModel, 
           </div>
         ) : (
           /* Active Conversational Log */
-          <div className="flex-1 flex flex-col gap-6 py-6 overflow-y-auto max-h-[calc(100vh-220px)] pr-2">
+          <div className="flex-1 flex flex-col gap-6 py-6 overflow-y-auto max-h-[calc(100vh-240px)] pr-2">
             {messages.map((msg, index) => (
               <div 
                 key={index}
@@ -192,12 +262,20 @@ export default function ChatWorkspace({ activeTab, setActiveTab, selectedModel, 
                         : 'glass-panel text-slate-200 rounded-tl-none border border-white/5'
                     }`}
                   >
+                    {/* Attached Document Pill inside User message */}
+                    {msg.attachedDoc && (
+                      <div className="flex items-center gap-1.5 bg-black/20 border border-white/15 px-2.5 py-1 rounded-xl w-fit mb-2 text-xs font-semibold text-indigo-200">
+                        <FileText className="w-3.5 h-3.5 text-indigo-300" />
+                        <span>Document: {msg.attachedDoc}</span>
+                      </div>
+                    )}
+
                     {msg.role === 'user' ? (
                       <span>{msg.content}</span>
                     ) : (
                       /* Render AI markdown */
                       <div 
-                        className="prose prose-invert prose-sm max-w-none text-slate-100 [&_code]:bg-white/10 [&_code]:px-1 [&_code]:rounded [&_pre]:bg-white/5 [&_pre]:p-3 [&_pre]:rounded-xl [&_pre]:overflow-x-auto [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm [&_strong]:text-white"
+                        className="prose prose-invert prose-sm max-w-none text-slate-100 [&_code]:bg-white/10 [&_code]:px-1 [&_code]:rounded [&_pre]:bg-white/5 [&_pre]:p-3 [&_pre]:rounded-xl [&_pre]:overflow-x-auto [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_h1]:text-sm [&_h1]:font-bold [&_h1]:text-indigo-300 [&_h2]:text-sm [&_h2]:font-bold [&_h2]:text-indigo-300 [&_h3]:text-xs [&_h3]:font-bold [&_h3]:text-slate-100 [&_strong]:text-white"
                         dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
                       />
                     )}
@@ -249,6 +327,36 @@ export default function ChatWorkspace({ activeTab, setActiveTab, selectedModel, 
 
       {/* Floating Chat Input Section */}
       <div className="max-w-[920px] mx-auto w-full px-6 sticky bottom-0 z-20">
+        
+        {/* Attached Document Preview Badge */}
+        {attachedFile && (
+          <div className="flex items-center gap-2 bg-indigo-500/20 border border-indigo-500/30 text-indigo-200 text-xs px-3.5 py-1.5 rounded-2xl w-fit mb-2 animate-[fadeUp_0.2s_ease-out] shadow-md">
+            <FileText className="w-4 h-4 text-indigo-400" />
+            <span className="font-semibold truncate max-w-[220px]">{attachedFile.name}</span>
+            <span className="text-[10px] text-indigo-300 font-medium">({(attachedFile.size / 1024).toFixed(0)} KB)</span>
+            <button 
+              onClick={() => setAttachedFile(null)}
+              className="p-0.5 hover:bg-white/10 rounded-md transition cursor-pointer ml-1"
+            >
+              <X className="w-3.5 h-3.5 text-slate-400 hover:text-white" />
+            </button>
+          </div>
+        )}
+
+        {/* Active Document Context Pill indicator */}
+        {activeDocName && !attachedFile && (
+          <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[10px] px-3 py-1 rounded-xl w-fit mb-2">
+            <FileText className="w-3 h-3 text-emerald-400" />
+            <span>Active Doc Context: <strong>{activeDocName}</strong></span>
+            <button 
+              onClick={() => { setActiveDocContext(''); setActiveDocName(''); }}
+              className="text-slate-400 hover:text-slate-200 ml-1 underline cursor-pointer"
+            >
+              Clear Context
+            </button>
+          </div>
+        )}
+
         <div className="glass-panel border border-white/10 rounded-[28px] p-2.5 flex items-center gap-3 shadow-2xl shadow-indigo-950/20 backdrop-blur-2xl">
           {/* Mode Switcher */}
           <ModeSwitcher activeTab={activeTab} setActiveTab={setActiveTab} />
@@ -263,14 +371,21 @@ export default function ChatWorkspace({ activeTab, setActiveTab, selectedModel, 
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !isLoading) handleSend(inputVal)
             }}
-            placeholder="Message your AI assistant..."
+            placeholder={attachedFile ? `Ask something about ${attachedFile.name}...` : "Message your AI assistant or upload a PDF..."}
             className="flex-1 bg-transparent border-none focus:outline-none text-sm text-slate-100 placeholder-slate-500 px-2 py-2"
             disabled={isLoading}
           />
 
           {/* Right Action Icons */}
           <div className="flex items-center gap-2.5 pr-1">
-            <button className="p-2 text-slate-400 hover:text-slate-200 hover:bg-white/5 rounded-xl transition cursor-pointer">
+            {/* Paperclip Button for PDF/Document Upload */}
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              title="Upload PDF or Document"
+              className={`p-2 rounded-xl transition cursor-pointer ${
+                attachedFile ? 'text-indigo-400 bg-indigo-500/20' : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+              }`}
+            >
               <Paperclip className="w-4 h-4" />
             </button>
             <button className="p-2 text-slate-400 hover:text-slate-200 hover:bg-white/5 rounded-xl transition cursor-pointer">
@@ -280,7 +395,7 @@ export default function ChatWorkspace({ activeTab, setActiveTab, selectedModel, 
             {/* Round Gradient Send Button */}
             <button 
               onClick={() => handleSend(inputVal)}
-              disabled={isLoading || !inputVal.trim()}
+              disabled={isLoading || (!inputVal.trim() && !attachedFile)}
               className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-indigo-600 flex items-center justify-center text-white hover:from-indigo-400 hover:to-indigo-500 disabled:opacity-40 shadow-[0_2px_8px_rgba(99,102,241,0.3)] transition-all cursor-pointer"
             >
               <Send className="w-3.5 h-3.5" />

@@ -47,6 +47,7 @@ app.add_middleware(
 class ChatRequest(BaseModel):
     question: str
     model: str = DEFAULT_MODEL
+    doc_context: str = ""
 
 
 class VideoChatRequest(BaseModel):
@@ -171,6 +172,58 @@ async def chat_video(payload: VideoChatRequest):
         rag_chain = build_rag_chain(payload.transcript, "English", payload.model)
         answer = ask_question(rag_chain, payload.question)
         return {"answer": answer}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+@app.post("/api/chat/pdf")
+async def chat_pdf(
+    file: UploadFile = File(...),
+    question: str = Form("Analyze this document and summarize key points."),
+    model: str = Form(DEFAULT_MODEL)
+):
+    """Analyze uploaded PDF/document and return AI insights + extracted text for continuous chat context."""
+    try:
+        import pypdf
+        import io
+        
+        contents = await file.read()
+        filename = file.filename or "uploaded_document.pdf"
+        doc_text = ""
+        
+        if filename.lower().endswith(".pdf"):
+            reader = pypdf.PdfReader(io.BytesIO(contents))
+            for page in reader.pages:
+                text = page.extract_text()
+                if text:
+                    doc_text += text + "\n"
+        else:
+            doc_text = contents.decode("utf-8", errors="ignore")
+            
+        if not doc_text.strip():
+            raise ValueError("Could not extract text content from the uploaded document.")
+            
+        llm = get_llm(model)
+        prompt = f"You are an expert Document Intelligence AI. Analyze the following document:\n\nDOCUMENT FILENAME: {filename}\nDOCUMENT EXTRACT:\n{doc_text[:7000]}\n\nUSER REQUEST: {question}\n\nProvide a comprehensive, highly structured analysis with key takeaways and summary points. Do not start with a giant main title header like '# Title'."
+        response = llm.invoke(prompt)
+        
+        raw = response.content if hasattr(response, "content") else str(response)
+        if isinstance(raw, list):
+            answer = " ".join(chunk.get("text", "") if isinstance(chunk, dict) else str(chunk) for chunk in raw).strip()
+        else:
+            answer = str(raw).strip()
+            
+        import re
+        answer = re.sub(r'<think>[\s\S]*?<\/think>', '', answer).strip()
+        answer = re.sub(r'^#\s+(.+)$', r'### \1', answer, flags=re.MULTILINE)
+        
+        return {
+            "answer": answer,
+            "extracted_text": doc_text[:7000],
+            "filename": filename
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
