@@ -30,6 +30,7 @@ watchdog>=4.0.0                   # File-change watcher (improves Streamlit hot-
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
 python-dotenv>=1.0.0              # Load API keys from .env
+pypdf>=5.0.0                      # PDF text extraction
 requests>=2.32.0
 
 # ── MCP Server (Model Context Protocol) ──────────────────────────────────────
