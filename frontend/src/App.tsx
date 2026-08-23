@@ -3,6 +3,7 @@ import Sidebar from './components/Sidebar'
 import Header from './components/Header'
 import ChatWorkspace from './components/ChatWorkspace'
 import VideoWorkspace from './components/VideoWorkspace'
+import PlatformModal from './components/PlatformModal'
 
 export default function App() {
   const [collapsed, setCollapsed] = useState(false)
@@ -12,6 +13,9 @@ export default function App() {
   // Credentials checking
   const [googleKeyOk, setGoogleKeyOk] = useState(false)
   const [groqKeyOk, setGroqKeyOk] = useState(false)
+
+  // Active platform modal: 'projects' | 'history' | 'favorites' | 'settings' | null
+  const [activeModal, setActiveModal] = useState<'projects' | 'history' | 'favorites' | 'settings' | null>(null)
 
   // Verify status on load
   useEffect(() => {
@@ -41,6 +45,7 @@ export default function App() {
         setCollapsed={setCollapsed} 
         activeTab={activeTab} 
         setActiveTab={setActiveTab} 
+        onOpenModal={(modal) => setActiveModal(modal)}
       />
 
       {/* Main Workspace Frame */}
@@ -75,6 +80,16 @@ export default function App() {
 
         </main>
       </div>
+
+      {/* Functional Platform Modal (Projects, History, Favorites, Settings) */}
+      <PlatformModal 
+        activeModal={activeModal}
+        onClose={() => setActiveModal(null)}
+        googleKeyOk={googleKeyOk}
+        groqKeyOk={groqKeyOk}
+        selectedModel={selectedModel}
+        setSelectedModel={setSelectedModel}
+      />
 
     </div>
   )

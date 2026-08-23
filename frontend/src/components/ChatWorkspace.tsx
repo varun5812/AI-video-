@@ -52,10 +52,14 @@ export default function ChatWorkspace({ activeTab, setActiveTab, selectedModel, 
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isLoading])
 
-  // Render markdown -> safe HTML string
+  // Render markdown -> safe HTML string with big-text sanitization
   const renderMarkdown = (text: string): string => {
     try {
-      return marked.parse(text) as string
+      // Remove <think>...</think> reasoning blocks from Qwen/DeepSeek models
+      let cleaned = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
+      // Demote top-level H1 headers (# Heading) to H3 to prevent big starting text
+      cleaned = cleaned.replace(/^#\s+(.+)$/gm, '### $1')
+      return marked.parse(cleaned) as string
     } catch {
       return text.replace(/\n/g, '<br/>')
     }

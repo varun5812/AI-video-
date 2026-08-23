@@ -75,7 +75,7 @@ async def chat_ai(payload: ChatRequest):
     
     try:
         llm = get_llm(payload.model)
-        prompt = f"You are a helpful, knowledgeable AI assistant. Please respond clearly and in a structured way using markdown (bold, bullets, headers where appropriate):\n\nQuery: {payload.question}"
+        prompt = f"You are a helpful, knowledgeable AI assistant. Please respond clearly in a clean, structured layout using bold text, bullet points, and subheadings (### Subheading). IMPORTANT: Do not start your response with a giant main title header like '# Title' or '# Response'. Start directly with the answer.\n\nQuery: {payload.question}"
         response = llm.invoke(prompt)
         # Handle both plain string and list-of-dicts content (Gemini returns list format)
         raw = response.content if hasattr(response, "content") else str(response)
@@ -86,6 +86,12 @@ async def chat_ai(payload: ChatRequest):
             ).strip()
         else:
             answer = str(raw).strip()
+        
+        # Clean up any reasoning blocks or leading H1 headers
+        import re
+        answer = re.sub(r'<think>[\s\S]*?<\/think>', '', answer).strip()
+        answer = re.sub(r'^#\s+(.+)$', r'### \1', answer, flags=re.MULTILINE)
+        
         return {"answer": answer}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
