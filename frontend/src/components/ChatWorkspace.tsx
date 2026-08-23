@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect } from 'react'
 import { marked } from 'marked'
 import { 
   Paperclip, 
-  Mic, 
   Send, 
   Lightbulb, 
   BarChart4, 
@@ -387,9 +386,6 @@ export default function ChatWorkspace({ activeTab, setActiveTab, selectedModel, 
               }`}
             >
               <Paperclip className="w-4 h-4" />
-            </button>
-            <button className="p-2 text-slate-400 hover:text-slate-200 hover:bg-white/5 rounded-xl transition cursor-pointer">
-              <Mic className="w-4 h-4" />
             </button>
             
             {/* Round Gradient Send Button */}
